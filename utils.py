@@ -1,5 +1,7 @@
 import pandas as pd
 from comet import download_model, load_from_checkpoint
+import numpy as np
+import scipy
 
 
 def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
@@ -45,3 +47,23 @@ def load_comet_model(comet_model_root_path, qe_system):
         model_path = f"{comet_model_root_path}/{qe_system}/checkpoints/model.ckpt"
     model = load_from_checkpoint(model_path)
     return model
+
+
+def WilliamsTest(r12, r13, r23, n, one_sided=True):
+    """
+    Function taken from https://github.com/google-research/mt-metrics-eval/blob/cb65e66184d2ade99ae3f4400ef4cad896ab48d8/mt_metrics_eval/stats.py#L866
+
+    :param r12: correlation between metrics A and human
+    :param r13: correlation between metrics B and human
+    :param r23: correlation between the two metrics
+    :param n: sample size (number of sentences)
+    :param one_sided:
+    :return: Williams test p-value for given correlations. This function works with arbitrary correlation functions, but
+    the interpretation of results other than non-averaged Pearson with complete entries is not clear.
+    """
+    k = 1 - r12**2 - r13**2 - r23**2 + 2 * r12 * r23 * r13
+    rbar = ((r12 + r13) / 2)
+    tnum = (r12 - r13) * np.sqrt((n - 1) * (1 + r23))
+    tden = np.sqrt(2 * (n - 1) / (n - 3) * k + rbar**2 * (1 - r23)**3)
+    p = scipy.stats.t.sf(np.abs(tnum / tden), n - 3)
+    return p if one_sided else 2 * p
