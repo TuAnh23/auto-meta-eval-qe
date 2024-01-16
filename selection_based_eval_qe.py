@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 import json
-from utils import process_data, format_for_comet, load_comet_model
+from utils import process_data, format_for_comet, load_comet_model, WilliamsTest
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
 
     ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
 
-    meta_eval_qes = {}
+    qe_systems_outputs = []
     for qe_system in args.qe_systems:
         qe_model = load_comet_model(args.comet_model_root_path, qe_system)
         qe_score = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
@@ -48,12 +48,61 @@ def main():
             kept_samples, batch_size=args.batch_size, gpus=args.nr_gpus
         ).system_score
 
-        meta_eval_qes[qe_system] = system_score
+        qe_systems_outputs.append(
+            {
+                "name": qe_system,
+                "sys": qe_model,
+                "selection_based_score": system_score,
+                "kept_samples": [x for i, x in enumerate(qe_data) if i in kept_indices]
+            }
+        )
 
-    sorted_meta_eval_qes = dict(sorted(meta_eval_qes.items(), key=lambda item: item[1], reverse=True))
+    ranked_qes = sort_qe_systems(qe_systems_outputs, len(ref_based_data), args.batch_size, args.nr_gpus)
+
+    # Remove the unnecessary info from the output for readability
+    remove = ["sys", "kept_samples"]
+    for item in ranked_qes:
+        for info in remove:
+            item.pop(info)
 
     with open(args.output, 'w') as file:
-        json.dump(sorted_meta_eval_qes, file, indent=4)
+        json.dump(ranked_qes, file, indent=4)
+
+
+def sort_qe_systems(qe_systems_outputs, n_samples, batch_size, nr_gpus):
+    # First sort by selection-based score
+    qe_systems_outputs.sort(key=lambda x: x['selection_based_score'], reverse=True)
+
+    # Then use Williams Test to see which ordering is significant
+    for qe_system_i in range(0, len(qe_systems_outputs)):
+        significantly_worse = []
+        for worse_qe_system_i in range(qe_system_i + 1, len(qe_systems_outputs)):
+            sys_vs_gold = qe_systems_outputs[qe_system_i]['selection_based_score']
+            worsesys_vs_gold = qe_systems_outputs[worse_qe_system_i]['selection_based_score']
+            worsesys_vs_sys = qe_systems_outputs[qe_system_i]['sys'].predict(
+                qe_systems_outputs[worse_qe_system_i]['kept_samples'],
+                batch_size=batch_size, gpus=nr_gpus
+            ).system_score
+
+            p_value = WilliamsTest(
+                rescaling_score(sys_vs_gold),
+                rescaling_score(worsesys_vs_gold),
+                rescaling_score(worsesys_vs_sys),
+                n_samples
+            )
+            if p_value < 0.05:
+                significantly_worse.append(qe_systems_outputs[worse_qe_system_i]['name'])
+        qe_systems_outputs[qe_system_i]['significantly_worse'] = significantly_worse
+
+    return qe_systems_outputs
+
+
+def rescaling_score(score):
+    """
+    Rescaling a score in the [0,1] range to [-1,1] range to fit Williams Test
+    """
+    assert 0 <= score <= 1
+    return 2 * score - 1
 
 
 if __name__ == '__main__':
