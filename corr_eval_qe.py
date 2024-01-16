@@ -75,7 +75,7 @@ def main():
         item.pop('sent_level_scores')
 
     with open(args.output, 'w') as file:
-        json.dump(qe_systems_outputs, file, indent=4)
+        json.dump(ranked_qes, file, indent=4)
 
 
 def sort_qe_systems(qe_systems_outputs):
