@@ -62,6 +62,10 @@ def WilliamsTest(r12, r13, r23, n, one_sided=True):
     the interpretation of results other than non-averaged Pearson with complete entries is not clear.
     """
     k = 1 - r12**2 - r13**2 - r23**2 + 2 * r12 * r23 * r13
+
+    if k < 0:
+        raise RuntimeError("Value k should not be negative.")
+
     rbar = ((r12 + r13) / 2)
     tnum = (r12 - r13) * np.sqrt((n - 1) * (1 + r23))
     tden = np.sqrt(2 * (n - 1) / (n - 3) * k + rbar**2 * (1 - r23)**3)
