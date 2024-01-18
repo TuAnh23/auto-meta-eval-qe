@@ -10,12 +10,14 @@ which python
 export TORCH_HOME=/project/OML/tdinh/.cache/torch
 export HF_HOME=/project/OML/tdinh/.cache/huggingface
 
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 
 KEPT_PORTION=90
 DATA_DOMAIN="news"
+COMET_REF_SYS="XCOMET-XL"
+SELECTION_REF_SYS="CHRF"
 
 EXP_NAME="${DATA_DOMAIN}2022_XCOMET-XL"
 OUTPUT_DIR="output/${EXP_NAME}"
@@ -54,11 +56,11 @@ if [[ ! -f ${OUTPUT_DIR}/comet_ref_based_rank.txt ]]; then
     --nr-gpus 1 \
     --batch-size 8 \
     --ground-truth "ref_based_comet" \
-    --ref-based-system "XCOMET-XL" \
+    --ref-based-system ${COMET_REF_SYS} \
     --output ${OUTPUT_DIR}/comet_ref_based_rank.txt
 fi
 
-if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${KEPT_PORTION}.txt ]]; then
+if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${SELECTION_REF_SYS}_${KEPT_PORTION}.txt ]]; then
   python selection_based_eval_qe.py \
     --dataset "metrics_wmt-mqm-human-evaluation" \
     --data-root-path ${DATA_ROOT_PATH} \
@@ -70,6 +72,6 @@ if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${KEPT_PORTION}.txt ]]; then
     --nr-gpus 1 \
     --batch-size 8 \
     --kept-portion ${KEPT_PORTION} \
-    --ref-based-system "XCOMET-XL" \
-    --output ${OUTPUT_DIR}/selection_based_rank_${KEPT_PORTION}.txt
+    --ref-based-system ${SELECTION_REF_SYS} \
+    --output ${OUTPUT_DIR}/selection_based_rank_${SELECTION_REF_SYS}_${KEPT_PORTION}.txt
 fi
