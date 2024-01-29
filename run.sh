@@ -17,7 +17,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 KEPT_PORTION=90
 DATA_DOMAIN="news"
 COMET_REF_SYS="XCOMET-XL"
-SELECTION_REF_SYS="CHRF"
+SELECTION_REF_SYS=${COMET_REF_SYS}
 
 EXP_NAME="${DATA_DOMAIN}2022_XCOMET-XL"
 OUTPUT_DIR="output/${EXP_NAME}"
@@ -74,4 +74,12 @@ if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${SELECTION_REF_SYS}_${KEPT_PORTIO
     --kept-portion ${KEPT_PORTION} \
     --ref-based-system ${SELECTION_REF_SYS} \
     --output ${OUTPUT_DIR}/selection_based_rank_${SELECTION_REF_SYS}_${KEPT_PORTION}.txt
+fi
+
+if [[ ! -f ${OUTPUT_DIR}/meta_meta_eval_qe.txt ]]; then
+  python meta_meta_eval_qe.py \
+    --output-dir ${OUTPUT_DIR} \
+    --gold-ranker "human_based_rank" \
+    --candidate-rankers "comet_ref_based_rank" "selection_based_rank_BLEU_90" "selection_based_rank_CHRF_90" "selection_based_rank_XCOMET-XL_70" "selection_based_rank_XCOMET-XL_80" "selection_based_rank_XCOMET-XL_90" "selection_based_rank_XCOMET-XL_95" \
+    --eval-ranker-output-path ${OUTPUT_DIR}/meta_meta_eval_qe.txt
 fi

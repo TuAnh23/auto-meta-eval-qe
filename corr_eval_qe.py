@@ -14,8 +14,7 @@ https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 """
 import argparse
 from scipy.stats import spearmanr
-import json
-from utils import process_data, format_for_comet, load_comet_model, WilliamsTest
+from utils import process_data, format_for_comet, load_comet_model, WilliamsTest, dump_json
 
 
 def main():
@@ -74,8 +73,7 @@ def main():
     for item in ranked_qes:
         item.pop('sent_level_scores')
 
-    with open(args.output, 'w') as file:
-        json.dump(ranked_qes, file, indent=4)
+    dump_json(ranked_qes, args.output)
 
 
 def sort_qe_systems(qe_systems_outputs):

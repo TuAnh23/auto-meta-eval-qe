@@ -2,6 +2,7 @@ import pandas as pd
 from comet import download_model, load_from_checkpoint
 import numpy as np
 import scipy
+import json
 
 
 def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
@@ -71,3 +72,14 @@ def WilliamsTest(r12, r13, r23, n, one_sided=True):
     tden = np.sqrt(2 * (n - 1) / (n - 3) * k + rbar**2 * (1 - r23)**3)
     p = scipy.stats.t.sf(np.abs(tnum / tden), n - 3)
     return p if one_sided else 2 * p
+
+
+def load_json(filename):
+    with open(filename, 'r') as f:
+        out = json.load(f)
+    return out
+
+
+def dump_json(obj, filename):
+    with open(filename, 'w') as file:
+        json.dump(obj, file, indent=4)

@@ -1,7 +1,6 @@
 import argparse
 import numpy as np
-import json
-from utils import process_data, format_for_comet, load_comet_model
+from utils import process_data, format_for_comet, load_comet_model, dump_json
 from sacrebleu.metrics import BLEU, CHRF, TER
 
 
@@ -69,8 +68,7 @@ def main():
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
 
-    with open(args.output, 'w') as file:
-        json.dump(ranked_qes, file, indent=4)
+    dump_json(ranked_qes, args.output)
 
 
 def select_from_indices(a_list, indices):
