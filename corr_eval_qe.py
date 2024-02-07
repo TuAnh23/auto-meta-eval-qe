@@ -14,12 +14,17 @@ https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 """
 import argparse
 from scipy.stats import spearmanr
-from utils import process_data, format_for_comet, load_comet_model, WilliamsTest, dump_json
+from utils import process_data, format_for_comet, load_comet_model, WilliamsTest, dump_json, add_noise, load_text_file
+import os
+import numpy as np
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, choices=["metrics_wmt-mqm-human-evaluation"])
+    parser.add_argument('--dataset', type=str, choices=["metrics_wmt-mqm-human-evaluation", "wmt22-testqe-mqm"],
+                        default="wmt22-testqe-mqm",
+                        help="WMT22 QE test is based on Newstest2022, "
+                             "which is the only part that XCOMET is not trained on")
     parser.add_argument('--data-root-path', type=str)
     parser.add_argument('--data-domain',
                         type=str, default='all',
@@ -27,7 +32,9 @@ def main():
     parser.add_argument('--comet-model-root-path', type=str)
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
-    parser.add_argument('--qe-systems', type=str, nargs='*')
+    parser.add_argument('--comet-qe-systems', type=str, nargs='*', default=[])
+    parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
+    parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22'])
     parser.add_argument('--ref-based-system', type=str, choices=['XCOMET-XL', 'wmt22-comet-da'],
                         default='wmt22-comet-da')
     parser.add_argument('--nr-gpus', type=int, default=1)
@@ -40,7 +47,6 @@ def main():
 
     src, mt, ref, human_scores = process_data(
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
-
     )
     qe_data = format_for_comet(src, mt)
     ref_based_data = format_for_comet(src, mt, ref)
@@ -50,22 +56,37 @@ def main():
 
     qe_systems_outputs = []
 
-    for qe_system in args.qe_systems:
+    for qe_system in args.comet_qe_systems:
         qe_model = load_comet_model(args.comet_model_root_path, qe_system)
         qe_score = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
-        if args.ground_truth == "human":
-            corr_score = spearmanr(qe_score, human_scores)
-        elif args.ground_truth == "ref_based_comet":
-            corr_score = spearmanr(qe_score, ref_based_score)
-        else:
-            raise RuntimeError(f"Unknown ground_truth {args.ground_truth}.")
-        qe_systems_outputs.append(
-            {
-                'name': qe_system,
-                'sent_level_scores': qe_score,
-                'corr_with_gold': corr_score
-            }
-        )
+        gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based_score, args.ground_truth)
+
+    if args.synthetic_qe_systems == '20-human-with-noise':
+        for i in range(1, 21):
+            synthetic_qe_score = add_noise(human_scores, noise_level=0.01 * i)
+            gather_corr(human_scores=human_scores,
+                        qe_score=synthetic_qe_score,
+                        qe_system=f'human_with_noise_{i}',
+                        qe_systems_outputs=qe_systems_outputs,
+                        ref_based_score=ref_based_score,
+                        ground_truth=args.ground_truth)
+
+    if args.qe_official_submissions == 'wmt22':
+        assert args.dataset == "wmt22-testqe-mqm"
+        submissions_root_path = f"{args.data_root_path}/wmt-qe-2022-data/official_submissions/task1_mqm/{args.src_lang}-{args.tgt_lang}"
+        participants = os.listdir(submissions_root_path)
+        participants = [p for p in participants if os.path.isdir(f"{submissions_root_path}/{p}")]
+
+        for participant in participants:
+            qe_system = participant.split(' - ')[0]
+            qe_score = load_text_file(f"{submissions_root_path}/{participant}/predictions.txt")[3:]
+            qe_score = np.array([float(x.split('\t')[-1]) for x in qe_score])
+            gather_corr(human_scores=human_scores,
+                        qe_score=qe_score,
+                        qe_system=qe_system,
+                        qe_systems_outputs=qe_systems_outputs,
+                        ref_based_score=ref_based_score,
+                        ground_truth=args.ground_truth)
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
 
@@ -74,6 +95,25 @@ def main():
         item.pop('sent_level_scores')
 
     dump_json(ranked_qes, args.output)
+
+
+def gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based_score, ground_truth):
+    """
+    Calculate correlation of QE scores to gold scores (human/reference based) and append results to `qe_systems_outputs`
+    """
+    if ground_truth == "human":
+        corr_score = spearmanr(qe_score, human_scores)
+    elif ground_truth == "ref_based_comet":
+        corr_score = spearmanr(qe_score, ref_based_score)
+    else:
+        raise RuntimeError(f"Unknown ground_truth {ground_truth}.")
+    qe_systems_outputs.append(
+        {
+            'name': qe_system,
+            'sent_level_scores': qe_score,
+            'corr_with_gold': corr_score
+        }
+    )
 
 
 def sort_qe_systems(qe_systems_outputs):
