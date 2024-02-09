@@ -10,17 +10,20 @@ which python
 export TORCH_HOME=/project/OML/tdinh/.cache/torch
 export HF_HOME=/project/OML/tdinh/.cache/huggingface
 
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 
 KEPT_PORTION=90
 DATA_DOMAIN="news"
 COMET_REF_SYS="XCOMET-XL"
-SELECTION_REF_SYS=${COMET_REF_SYS}
+SELECTION_REF_SYS="XCOMET-XL"  # "BLEU"
+
+SRC_LANG="en"
+TGT_LANG="ru"
 
 #EXP_NAME="${DATA_DOMAIN}2022_XCOMET-XL"
-EXP_NAME="rank_wmt22_qe_systems"
+EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}"
 OUTPUT_DIR="output/${EXP_NAME}"
 
 DATA_ROOT_PATH="/project/OML/tdinh/data"
@@ -38,8 +41,8 @@ if [[ ! -f ${OUTPUT_DIR}/human_based_rank.txt ]]; then
     --data-root-path ${DATA_ROOT_PATH} \
     --data-domain ${DATA_DOMAIN} \
     --comet-model-root-path ${MODEL_ROOT_PATH} \
-    --src-lang "en" \
-    --tgt-lang "de" \
+    --src-lang ${SRC_LANG} \
+    --tgt-lang ${TGT_LANG} \
     --comet-qe-systems "${QE_SYSTEMS[@]}" \
     --synthetic-qe-systems ${SYNTHETIC_QE_SYSTEMS} \
     --qe-official-submissions ${QE_OFFICIAL_SUBMISSIONS} \
@@ -55,8 +58,8 @@ if [[ ! -f ${OUTPUT_DIR}/comet_ref_based_rank.txt ]]; then
     --data-root-path ${DATA_ROOT_PATH} \
     --data-domain ${DATA_DOMAIN} \
     --comet-model-root-path ${MODEL_ROOT_PATH} \
-    --src-lang "en" \
-    --tgt-lang "de" \
+    --src-lang ${SRC_LANG} \
+    --tgt-lang ${TGT_LANG} \
     --comet-qe-systems "${QE_SYSTEMS[@]}" \
     --synthetic-qe-systems ${SYNTHETIC_QE_SYSTEMS} \
     --qe-official-submissions ${QE_OFFICIAL_SUBMISSIONS} \
@@ -73,8 +76,8 @@ if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${SELECTION_REF_SYS}_${KEPT_PORTIO
     --data-root-path ${DATA_ROOT_PATH} \
     --data-domain ${DATA_DOMAIN} \
     --comet-model-root-path ${MODEL_ROOT_PATH} \
-    --src-lang "en" \
-    --tgt-lang "de" \
+    --src-lang ${SRC_LANG} \
+    --tgt-lang ${TGT_LANG} \
     --comet-qe-systems "${QE_SYSTEMS[@]}" \
     --synthetic-qe-systems ${SYNTHETIC_QE_SYSTEMS} \
     --qe-official-submissions ${QE_OFFICIAL_SUBMISSIONS} \
@@ -89,7 +92,7 @@ if [[ ! -f ${OUTPUT_DIR}/meta_meta_eval_qe.txt ]]; then
   python meta_meta_eval_qe.py \
     --output-dir ${OUTPUT_DIR} \
     --gold-ranker "human_based_rank" \
-    --candidate-rankers "comet_ref_based_rank" \
+    --candidate-rankers "comet_ref_based_rank" "selection_based_rank_XCOMET-XL_90" \
     --eval-ranker-output-path ${OUTPUT_DIR}/meta_meta_eval_qe.txt
 fi
 

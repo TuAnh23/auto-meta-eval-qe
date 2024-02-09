@@ -40,10 +40,10 @@ def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
 
         # Getting the references from the bigger wmt22 general MT test set
         src_pool = load_text_file(
-            f"{data_root_path}/wmt22_general_MT/src.{src_lang}"
+            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/src.{src_lang}"
         )
         ref_pool = load_text_file(
-            f"{data_root_path}/wmt22_general_MT/tgt.{tgt_lang}"
+            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt.{tgt_lang}"
         )
         src_ref = {k: v for k, v in zip(src_pool, ref_pool)}
 

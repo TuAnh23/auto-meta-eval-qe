@@ -40,6 +40,9 @@ def main():
     if 'comet' in args.ref_based_system.lower():
         ref_based_data = format_for_comet(src, mt, ref)
         ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
+    else:
+        ref_based_data = None
+        ref_based_model = None
 
     qe_systems_outputs = []
     for qe_system in args.comet_qe_systems:
