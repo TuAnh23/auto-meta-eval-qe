@@ -31,17 +31,17 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    src, mt, ref, human_scores = process_data(args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain)
+    src, mt, refs, human_scores = process_data(args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain)
     qe_data = format_for_comet(src, mt)
 
     portion_to_keep = args.kept_portion * 0.01
     nr_discarded_samples = int((1 - portion_to_keep) * len(src))
 
     if 'comet' in args.ref_based_system.lower():
-        ref_based_data = format_for_comet(src, mt, ref)
+        ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs]
         ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
     else:
-        ref_based_data = None
+        ref_based_data_s = None
         ref_based_model = None
 
     qe_systems_outputs = []
@@ -49,14 +49,14 @@ def main():
         qe_model = load_comet_model(args.comet_model_root_path, qe_system)
         qe_score = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
 
-        gather_score(mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs, ref, ref_based_data,
+        gather_score(mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs, refs, ref_based_data_s,
                     ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus)
     if args.synthetic_qe_systems == '20-human-with-noise':
         for i in range(1, 21):
             synthetic_qe_score = add_noise(human_scores, noise_level=0.01 * i)
             gather_score(
                 mt, nr_discarded_samples, synthetic_qe_score, f'human_with_noise_{i}', qe_systems_outputs,
-                ref, ref_based_data, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
+                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
             )
 
     if args.qe_official_submissions == 'wmt22':
@@ -71,7 +71,7 @@ def main():
             qe_score = np.array([float(x.split('\t')[-1]) for x in qe_score])
             gather_score(
                 mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs,
-                ref, ref_based_data, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
+                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
             )
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
@@ -81,7 +81,7 @@ def main():
 
 def gather_score(
         mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs,
-        ref, ref_based_data, ref_based_model, ref_based_system, batch_size, nr_gpus
+        refs, ref_based_data_s, ref_based_model, ref_based_system, batch_size, nr_gpus
 ):
     """
     Calculate score of QE systems and append results to `qe_systems_outputs`
@@ -90,9 +90,13 @@ def gather_score(
     kept_indices = np.argsort(qe_score)[nr_discarded_samples:]
     if 'comet' in ref_based_system.lower():
         # Score the kept samples with ref-based COMET
-        system_score = ref_based_model.predict(
-            select_from_indices(ref_based_data, kept_indices), batch_size=batch_size, gpus=nr_gpus
-        ).system_score
+        system_scores = [
+            ref_based_model.predict(
+                select_from_indices(ref_based_data, kept_indices), batch_size=batch_size, gpus=nr_gpus
+            ).system_score
+            for ref_based_data in ref_based_data_s
+        ]
+        system_score = np.mean(np.array(system_scores), axis=0)  # TODO WEIGHT
     else:
         metrics_dict = {
             'BLEU': BLEU(), 'CHRF': CHRF(), 'TER': TER()
@@ -101,7 +105,7 @@ def gather_score(
             raise RuntimeError(f"Ref based system {ref_based_system} unknown.")
 
         system_score = metrics_dict[ref_based_system].corpus_score(
-            select_from_indices(mt, kept_indices), [select_from_indices(ref, kept_indices)]
+            select_from_indices(mt, kept_indices), [select_from_indices(ref, kept_indices) for ref in refs]  # TODO WEIGHT
         ).score
     qe_systems_outputs.append(
         {

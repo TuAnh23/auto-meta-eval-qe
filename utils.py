@@ -3,6 +3,7 @@ from comet import download_model, load_from_checkpoint
 import numpy as np
 import scipy
 import json
+from glob import glob
 
 
 def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
@@ -29,7 +30,7 @@ def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         score_nomralized = (df['score'].to_numpy() - min) / (max - min)
         if f"{src_lang}-{tgt_lang}" not in ["en-de", "en-zh"]:
             raise RuntimeError(f"Not sure if MQM normalizing is correct for language pair {src_lang}-{tgt_lang}")
-        return df['src'].to_list(), df['mt'].to_list(), df['ref'].to_list(), score_nomralized
+        return df['src'].to_list(), df['mt'].to_list(), [df['ref'].to_list()], score_nomralized
     elif dataset == f"wmt22-testqe-mqm":
         src = load_text_file(
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.src"
@@ -42,19 +43,20 @@ def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         src_pool = load_text_file(
             f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/src.{src_lang}"
         )
-        ref_pool = load_text_file(
-            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt.{tgt_lang}"
-        )
-        src_ref = {k: v for k, v in zip(src_pool, ref_pool)}
+        refs = []
 
-        ref = [src_ref[s] for s in src]
+        for ref_file in glob(f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt*.{tgt_lang}"):
+            ref_pool = load_text_file(ref_file)
+            src_ref = {k: v for k, v in zip(src_pool, ref_pool)}
+            ref = [src_ref[s] for s in src]
+            refs.append(ref)
 
         mqm_z_score = load_text_file(
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.{src_lang}-{tgt_lang}.mqm_z_score"
         )
         mqm_z_score = [float(x) for x in mqm_z_score]
 
-        return src, mt, ref, mqm_z_score
+        return src, mt, refs, mqm_z_score
     else:
         raise RuntimeError(f"Dataset {dataset} unknown")
 

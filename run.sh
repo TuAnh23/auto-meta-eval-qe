@@ -20,10 +20,10 @@ COMET_REF_SYS="XCOMET-XL"
 SELECTION_REF_SYS="XCOMET-XL"  # "BLEU"
 
 SRC_LANG="en"
-TGT_LANG="ru"
+TGT_LANG="de"
 
 #EXP_NAME="${DATA_DOMAIN}2022_XCOMET-XL"
-EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}"
+EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}_mul_refs"
 OUTPUT_DIR="output/${EXP_NAME}"
 
 DATA_ROOT_PATH="/project/OML/tdinh/data"

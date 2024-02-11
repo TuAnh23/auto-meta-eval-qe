@@ -45,14 +45,20 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    src, mt, ref, human_scores = process_data(
+    src, mt, refs, human_scores = process_data(
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
     )
     qe_data = format_for_comet(src, mt)
-    ref_based_data = format_for_comet(src, mt, ref)
+    ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs]
 
     ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
-    ref_based_score = ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
+    ref_based_scores = [
+        ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
+        for ref_based_data in ref_based_data_s
+    ]
+
+    ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+    # TODO: can weight by mqm score
 
     qe_systems_outputs = []
 
