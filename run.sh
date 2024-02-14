@@ -10,7 +10,7 @@ which python
 export TORCH_HOME=/project/OML/tdinh/.cache/torch
 export HF_HOME=/project/OML/tdinh/.cache/huggingface
 
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 
@@ -23,7 +23,7 @@ SRC_LANG="en"
 TGT_LANG="de"
 
 #EXP_NAME="${DATA_DOMAIN}2022_XCOMET-XL"
-EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}_mul_refs"
+EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}_mul_refs_paraphrased"
 OUTPUT_DIR="output/${EXP_NAME}"
 
 DATA_ROOT_PATH="/project/OML/tdinh/data"
@@ -34,6 +34,23 @@ SYNTHETIC_QE_SYSTEMS="None"  # "20-human-with-noise"
 QE_OFFICIAL_SUBMISSIONS="wmt22"
 
 mkdir -p ${OUTPUT_DIR}
+
+python process_data.py \
+  --dataset "wmt22-testqe-mqm" \
+  --data-root-path ${DATA_ROOT_PATH} \
+  --src-lang ${SRC_LANG} \
+  --tgt-lang ${TGT_LANG}
+
+python paraphraser.py \
+  --dataset "wmt22-testqe-mqm" \
+  --data-root-path ${DATA_ROOT_PATH} \
+  --src-lang ${SRC_LANG} \
+  --tgt-lang ${TGT_LANG} \
+  --model_name "Lelon/t5-german-paraphraser-large" \
+  --nr_paraphrases 1 \
+  --batch_size 64 \
+  --temperature 0
+
 
 if [[ ! -f ${OUTPUT_DIR}/human_based_rank.txt ]]; then
   python corr_eval_qe.py \
@@ -96,4 +113,4 @@ if [[ ! -f ${OUTPUT_DIR}/meta_meta_eval_qe.txt ]]; then
     --eval-ranker-output-path ${OUTPUT_DIR}/meta_meta_eval_qe.txt
 fi
 
-#"comet_ref_based_rank" "selection_based_rank_BLEU_90" "selection_based_rank_CHRF_90" "selection_based_rank_XCOMET-XL_70" "selection_based_rank_XCOMET-XL_80" "selection_based_rank_XCOMET-XL_90" "selection_based_rank_XCOMET-XL_95" \
+# "comet_ref_based_rank" "selection_based_rank_BLEU_90" "selection_based_rank_CHRF_90" "selection_based_rank_XCOMET-XL_70" "selection_based_rank_XCOMET-XL_80" "selection_based_rank_XCOMET-XL_90" "selection_based_rank_XCOMET-XL_95" \

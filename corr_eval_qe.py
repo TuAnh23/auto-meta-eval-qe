@@ -14,7 +14,7 @@ https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 """
 import argparse
 from scipy.stats import spearmanr
-from utils import process_data, format_for_comet, load_comet_model, WilliamsTest, dump_json, add_noise, load_text_file
+from utils import load_data, format_for_comet, load_comet_model, WilliamsTest, dump_json, add_noise, load_text_file
 import os
 import numpy as np
 
@@ -45,7 +45,7 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    src, mt, refs, human_scores = process_data(
+    src, mt, refs, human_scores = load_data(
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
     )
     qe_data = format_for_comet(src, mt)

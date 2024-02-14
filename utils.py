@@ -1,12 +1,14 @@
 import pandas as pd
 from comet import download_model, load_from_checkpoint
 import numpy as np
+import torch
+import random
 import scipy
 import json
 from glob import glob
 
 
-def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
+def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
     if dataset == "metrics_wmt-mqm-human-evaluation":
         df = pd.read_csv(f"{data_root_path}/wmt-mqm-human-evaluation")
         # Filter out the data
@@ -39,16 +41,10 @@ def process_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.mt"
         )
 
-        # Getting the references from the bigger wmt22 general MT test set
-        src_pool = load_text_file(
-            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/src.{src_lang}"
-        )
+        # Getting the references from the wmt22 news MT test set
         refs = []
-
-        for ref_file in glob(f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt*.{tgt_lang}"):
-            ref_pool = load_text_file(ref_file)
-            src_ref = {k: v for k, v in zip(src_pool, ref_pool)}
-            ref = [src_ref[s] for s in src]
+        for ref_file in glob(f"{data_root_path}/wmt22_news_MT/{src_lang}-{tgt_lang}/tgt_ref*.{tgt_lang}"):
+            ref = load_text_file(ref_file)
             refs.append(ref)
 
         mqm_z_score = load_text_file(
@@ -128,6 +124,18 @@ def load_text_file(file_path):
 
 
 def write_text_file(lines, file_path):
-    with open(file_path, 'w') as f:
+    with open(file_path, 'w', encoding='utf-8') as f:
         for line in lines:
             f.write(f"{line}\n")
+
+
+def set_seed(seed=0):
+    """Set the random seed for torch.
+    Args:
+        seed (int, optional): random seed. Default 0
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    # If CUDA is not available, this is silently ignored.
+    torch.cuda.manual_seed_all(seed)
