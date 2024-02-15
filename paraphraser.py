@@ -44,9 +44,14 @@ def main():
             for i in range(0, args.nr_paraphrases):
                 print(f"Generating {i}/{args.nr_paraphrases-1} paraphrases for {ref_name}")
                 set_seed(i)
-                output = pipe(
-                    input_sents, batch_size=args.batch_size, do_sample=(args.temperature > 0), temperature=args.temperature
-                )
+                if args.temperature > 0:
+                    output = pipe(
+                        input_sents, batch_size=args.batch_size, do_sample=True, temperature=args.temperature
+                    )
+                else:
+                    output = pipe(
+                        input_sents, batch_size=args.batch_size, do_sample=False
+                    )
                 output_sents = [x["generated_text"] for x in output]
                 write_text_file(output_sents, f"{data_dir}/tgt_{ref_name}_paraphrased{i}.{args.tgt_lang}")
 
