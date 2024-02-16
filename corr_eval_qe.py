@@ -14,9 +14,12 @@ https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 """
 import argparse
 from scipy.stats import spearmanr
-from utils import load_data, format_for_comet, load_comet_model, WilliamsTest, dump_json, add_noise, load_text_file
+from utils import \
+    load_data, format_for_comet, load_comet_model, WilliamsTest, \
+    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu
 import os
 import numpy as np
+from sacrebleu.metrics import BLEU, CHRF, TER
 
 
 def main():
@@ -35,12 +38,12 @@ def main():
     parser.add_argument('--comet-qe-systems', type=str, nargs='*', default=[])
     parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
     parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22'])
-    parser.add_argument('--ref-based-system', type=str, choices=['XCOMET-XL', 'wmt22-comet-da'],
+    parser.add_argument('--ref-based-system', type=str, choices=['XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER'],
                         default='wmt22-comet-da')
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--output', type=str, help="Path to file that stores the ranking of the given QE systems")
-    parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_comet"])
+    parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_metrics"])
 
     args = parser.parse_args()
     print(args)
@@ -49,16 +52,33 @@ def main():
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
     )
     qe_data = format_for_comet(src, mt)
-    ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs]
 
-    ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
-    ref_based_scores = [
-        ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
-        for ref_based_data in ref_based_data_s
-    ]
-
-    ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
-    # TODO: can weight by mqm score
+    if args.ground_truth == 'ref_based_metrics':
+        if 'comet' in args.ref_based_system.lower():
+            ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs]
+            ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
+            ref_based_scores = [
+                ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
+                for ref_based_data in ref_based_data_s
+            ]
+            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+        elif args.ref_based_system in ['BLEU', 'CHRF', 'TER']:
+            metrics_dict = {
+                'BLEU': BLEU(effective_order=True),
+                'CHRF': CHRF(),
+                'TER': TER()
+            }
+            src, mt, formatted_refs = format_for_sent_level_sacrebleu(src, mt, refs)
+            ref_based_score = np.array(
+                [
+                    metrics_dict[args.ref_based_system].sentence_score(mt[i], formatted_refs[i]).score
+                    for i in range(len(mt))
+                ]
+            )
+        else:
+            raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
+    else:
+        ref_based_score = None
 
     qe_systems_outputs = []
 
@@ -109,7 +129,7 @@ def gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based
     """
     if ground_truth == "human":
         corr_score = spearmanr(qe_score, human_scores)
-    elif ground_truth == "ref_based_comet":
+    elif ground_truth == "ref_based_metrics":
         corr_score = spearmanr(qe_score, ref_based_score)
     else:
         raise RuntimeError(f"Unknown ground_truth {ground_truth}.")

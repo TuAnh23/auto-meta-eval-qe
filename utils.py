@@ -64,6 +64,21 @@ def format_for_comet(src, mt, ref=None):
         return [{'src': x, 'mt': y} for x, y in zip(src, mt)]
 
 
+def format_for_sent_level_sacrebleu(src, mt, refs):
+    """
+    :param src: [src_sent1, src_sent2, ...]
+    :param mt: [hyp_sent1, hyp_sent2, ...]
+    :param refs: [[ref1_sent1, ref1_sent2, ...], [ref2_sent1, ref2_sent2, ...], ...]
+    :return: src, mt, formatted_refs, where formatted_refs = [[ref1_sent1, ref2_sent1, ...], [ref1_sent2, ref2_sent2, ...], ...]
+    """
+    assert len(src) == len(mt)
+    nr_sents = len(src)
+    formatted_refs = []
+    for sent_i in range(nr_sents):
+        formatted_refs.append([refs[ref_i][sent_i] for ref_i in range(len(refs))])
+    return src, mt, formatted_refs
+
+
 def load_comet_model(comet_model_root_path, qe_system):
     if qe_system in ["wmt22-cometkiwi-da", "wmt20-comet-qe-da", "wmt22-comet-da", "wmt23-cometkiwi-da-xl", "XCOMET-XL"]:
         model_path = download_model(f"Unbabel/{qe_system}")
