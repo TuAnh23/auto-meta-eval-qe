@@ -6,6 +6,7 @@ import random
 import scipy
 import json
 from glob import glob
+import wandb
 
 
 def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
@@ -154,3 +155,14 @@ def set_seed(seed=0):
     torch.manual_seed(seed)
     # If CUDA is not available, this is silently ignored.
     torch.cuda.manual_seed_all(seed)
+
+
+def init_wandb_run(args, log_keys):
+    args_dict = vars(args)
+    config_dict = {
+        k: '/'.join(args_dict[k]) if isinstance(args_dict[k], list) else args_dict[k] for k in log_keys
+    }
+
+    wandb.init(project=args.wandb_project, entity=args.wandb_username, id=args.wandb_run_id, resume="allow")
+    for k, v in config_dict.items():
+        wandb.config[k] = v

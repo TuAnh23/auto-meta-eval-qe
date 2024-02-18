@@ -1,7 +1,10 @@
 import argparse
+import os
+
 from transformers import T5ForConditionalGeneration, T5Tokenizer, pipeline
-from utils import load_text_file, write_text_file, set_seed
+from utils import load_text_file, write_text_file, set_seed, init_wandb_run
 import torch
+from glob import glob
 
 
 def main():
@@ -13,16 +16,22 @@ def main():
     parser.add_argument('--data-root-path', type=str)
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
-    parser.add_argument("--model_name", type=str, default="Lelon/t5-german-paraphraser-large")
+    parser.add_argument("--paraphraser_name", type=str, default="Lelon/t5-german-paraphraser-large")
     parser.add_argument("--nr_paraphrases", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--temperature", type=float, default=1.0,
                         help="(Default: 1.0). Float (0.0-100.0). The temperature of the sampling operation. 1 means "
                              "regular sampling, 0 means always take the highest score, 100.0 is getting closer to "
                              "uniform probability.")
+    parser.add_argument('--wandb-username', type=str, default="None")
+    parser.add_argument('--wandb-run-id', type=str, default="None")
+    parser.add_argument('--wandb-project', type=str, default="None")
 
     args = parser.parse_args()
     print(args)
+
+    log_keys = ['dataset', 'src_lang', 'tgt_lang', 'paraphraser_name', 'nr_paraphrases', 'temperature']
+    init_wandb_run(args, log_keys)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -31,11 +40,16 @@ def main():
     else:
         print('No GPU available, using the CPU instead.')
         device = torch.device("cpu")
-    pipe = pipeline("text2text-generation", model=args.model_name, device=device)
+    pipe = pipeline("text2text-generation", model=args.paraphraser_name, device=device)
 
     if args.dataset == "wmt22-testqe-mqm":
         data_dir = f"{args.data_root_path}/wmt22_news_MT/{args.src_lang}-{args.tgt_lang}"
         original_ref_list = ["ref:A"]
+
+        # Remove previous paraphrased files
+        for file in glob(f"{data_dir}/*paraphrased*"):
+            os.remove(file)
+
         if f"{args.src_lang}-{args.tgt_lang}" in ["en-de", "zh-en"]:
             original_ref_list.append("ref:B")
         for ref_name in original_ref_list:

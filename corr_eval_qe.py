@@ -16,10 +16,11 @@ import argparse
 from scipy.stats import spearmanr
 from utils import \
     load_data, format_for_comet, load_comet_model, WilliamsTest, \
-    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu
+    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run
 import os
 import numpy as np
 from sacrebleu.metrics import BLEU, CHRF, TER
+import wandb
 
 
 def main():
@@ -44,14 +45,25 @@ def main():
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--output', type=str, help="Path to file that stores the ranking of the given QE systems")
     parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_metrics"])
+    parser.add_argument('--wandb-username', type=str, default="None")
+    parser.add_argument('--wandb-run-id', type=str, default="None")
+    parser.add_argument('--wandb-project', type=str, default="None")
 
     args = parser.parse_args()
     print(args)
+
+    log_keys = [
+        'dataset', 'data_domain', 'src_lang', 'tgt_lang', 'ref_based_system', 'synthetic_qe_systems',
+        'qe_official_submissions', 'comet_qe_systems'
+    ]
+    init_wandb_run(args, log_keys)
 
     src, mt, refs, human_scores = load_data(
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
     )
     qe_data = format_for_comet(src, mt)
+
+    wandb.log({'total_nr_refs': len(refs)})
 
     if args.ground_truth == 'ref_based_metrics':
         if 'comet' in args.ref_based_system.lower():
@@ -75,8 +87,18 @@ def main():
                     for i in range(len(mt))
                 ]
             )
+            if args.ref_based_system == 'TER':
+                # Invert so that the higher the score, the beter the translation
+                ref_based_score = - ref_based_score
         else:
             raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
+
+        wandb.log(
+            {
+                "ref_based_corr_w_human": spearmanr(ref_based_score, human_scores)[0]
+            }
+        )
+
     else:
         ref_based_score = None
 
@@ -121,6 +143,12 @@ def main():
         item.pop('sent_level_scores')
 
     dump_json(ranked_qes, args.output)
+
+    wandb.log(
+        {
+            f"rank_qe_by_{args.ground_truth}": '/'.join([x['name'] for x in ranked_qes])
+        }
+    )
 
 
 def gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based_score, ground_truth):

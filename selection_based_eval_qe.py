@@ -1,8 +1,9 @@
 import argparse
 import numpy as np
-from utils import load_data, format_for_comet, load_comet_model, dump_json, add_noise, load_text_file
+from utils import load_data, format_for_comet, load_comet_model, dump_json, add_noise, load_text_file, init_wandb_run
 from sacrebleu.metrics import BLEU, CHRF, TER
 import os
+import wandb
 
 
 def main():
@@ -27,11 +28,20 @@ def main():
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--kept-portion', type=int, default=90, help="in percentage")
     parser.add_argument('--output', type=str, help="Path to file that stores the ranking of the given QE systems")
+    parser.add_argument('--wandb-username', type=str, default="None")
+    parser.add_argument('--wandb-run-id', type=str, default="None")
+    parser.add_argument('--wandb-project', type=str, default="None")
 
     args = parser.parse_args()
     print(args)
 
-    src, mt, refs, human_scores = load_data(args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain)
+    log_keys = ['dataset', 'data_domain', 'src_lang', 'tgt_lang', 'ref_based_system', 'synthetic_qe_systems',
+                'qe_official_submissions', 'comet_qe_systems', 'kept_portion']
+    init_wandb_run(args, log_keys)
+
+    src, mt, refs, human_scores = load_data(
+        args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
+    )
     qe_data = format_for_comet(src, mt)
 
     portion_to_keep = args.kept_portion * 0.01
@@ -77,6 +87,12 @@ def main():
     ranked_qes = sort_qe_systems(qe_systems_outputs)
 
     dump_json(ranked_qes, args.output)
+
+    wandb.log(
+        {
+            f"rank_qe_by_selection_based": '/'.join([x['name'] for x in ranked_qes])
+        }
+    )
 
 
 def gather_score(
