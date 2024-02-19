@@ -166,3 +166,18 @@ def init_wandb_run(args, log_keys):
     wandb.init(project=args.wandb_project, entity=args.wandb_username, id=args.wandb_run_id, resume="allow")
     for k, v in config_dict.items():
         wandb.config[k] = v
+
+
+def calculate_pairwise_ranking_accuracy(pred_scores, gold_scores):
+    pred_rank_binary = ranking_scores_to_binary(pred_scores)
+    gold_rank_binary = ranking_scores_to_binary(gold_scores)
+    compare = np.equal(pred_rank_binary, gold_rank_binary).astype(int)
+    return sum(compare) / len(compare)
+
+
+def ranking_scores_to_binary(scores):
+    binary_out = []
+    for i in range(len(scores)):
+        for j in range(i+1, len(scores)):
+            binary_out.append(int(scores[i] > scores[j]))
+    return np.array(binary_out)

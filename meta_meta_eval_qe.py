@@ -1,6 +1,6 @@
 import argparse
 from scipy.stats import spearmanr
-from utils import load_json, dump_json, init_wandb_run
+from utils import load_json, dump_json, init_wandb_run, calculate_pairwise_ranking_accuracy
 import wandb
 
 
@@ -32,10 +32,12 @@ def main():
         candidate_ranker_out = reformat(candidate_ranker_out)
         candidate_ranker_scores = [candidate_ranker_out[name] for name in qe_names]
         eval_candidate_rankers[candidate_ranker] = spearmanr(candidate_ranker_scores, gold_ranker_scores)
+        pairwise_ranking_accuracy = calculate_pairwise_ranking_accuracy(candidate_ranker_scores, gold_ranker_scores)
 
         wandb.log(
             {
-                f"{candidate_ranker}_corr_of_corr": eval_candidate_rankers[candidate_ranker][0]
+                f"{candidate_ranker}_corr_of_corr": eval_candidate_rankers[candidate_ranker][0],
+                f"{candidate_ranker}_pairwise_ranking_accuracy": pairwise_ranking_accuracy,
             }
         )
 
