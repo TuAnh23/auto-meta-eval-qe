@@ -13,7 +13,7 @@ So we use MQM data 2021 onwards
 https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 """
 import argparse
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from utils import \
     load_data, format_for_comet, load_comet_model, WilliamsTest, \
     dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run
@@ -95,7 +95,8 @@ def main():
 
         wandb.log(
             {
-                "ref_based_corr_w_human": spearmanr(ref_based_score, human_scores)[0]
+                "ref_based_corr_w_human": spearmanr(ref_based_score, human_scores)[0],
+                "ref_based_corr_w_human_pearson": pearsonr(ref_based_score, human_scores)[0],
             }
         )
 
@@ -157,15 +158,18 @@ def gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based
     """
     if ground_truth == "human":
         corr_score = spearmanr(qe_score, human_scores)
+        corr_score_pearson = pearsonr(qe_score, human_scores)
     elif ground_truth == "ref_based_metrics":
         corr_score = spearmanr(qe_score, ref_based_score)
+        corr_score_pearson = pearsonr(qe_score, ref_based_score)
     else:
         raise RuntimeError(f"Unknown ground_truth {ground_truth}.")
     qe_systems_outputs.append(
         {
             'name': qe_system,
             'sent_level_scores': qe_score,
-            'corr_with_gold': corr_score
+            'corr_with_gold': corr_score,
+            'corr_with_gold_pearson': corr_score_pearson
         }
     )
 
