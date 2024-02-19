@@ -18,17 +18,18 @@ KEPT_PORTION=90
 DATASET="wmt22-testqe-mqm"
 DATA_DOMAIN="news"
 REF_BASED_SYS="TER" # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER'
+NR_ORIGINAL_REFERENCE="mul"  # "single", "mul"
 
 SRC_LANG="en"
 TGT_LANG="de"
 
-declare -a QE_SYSTEMS=( "wmt22-cometkiwi-da" )  # "wmt22-cometkiwi-da" "wmt21-comet-qe-da" "wmt21-comet-qe-mqm" "wmt20-comet-qe-da" "wmt23-cometkiwi-da-xl" )
+declare -a QE_SYSTEMS=(  )  # "wmt22-cometkiwi-da" "wmt21-comet-qe-da" "wmt21-comet-qe-mqm" "wmt20-comet-qe-da" "wmt23-cometkiwi-da-xl" )
 SYNTHETIC_QE_SYSTEMS="None"  # "20-human-with-noise"
-QE_OFFICIAL_SUBMISSIONS="None"  # "wmt22" "None"
+QE_OFFICIAL_SUBMISSIONS="wmt22"  # "wmt22" "None"
 
-#EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}_${REF_BASED_SYS}_mul_refs" # _paraphrased"
-EXP_NAME=dev
+EXP_NAME="rank_wmt22_official_submissions_${SRC_LANG}_${TGT_LANG}_${REF_BASED_SYS}" # _paraphrased"
 OUTPUT_DIR="output/${EXP_NAME}"
+rm -rf ${OUTPUT_DIR}
 mkdir -p ${OUTPUT_DIR}
 
 DATA_ROOT_PATH="/project/OML/tdinh/data"
@@ -45,7 +46,11 @@ python process_data.py \
   --dataset ${DATASET} \
   --data-root-path ${DATA_ROOT_PATH} \
   --src-lang ${SRC_LANG} \
-  --tgt-lang ${TGT_LANG}
+  --tgt-lang ${TGT_LANG} \
+  --nr-refs ${NR_ORIGINAL_REFERENCE} \
+  --wandb-username ${WANDB_USERNAME} \
+  --wandb-run-id ${WANDB_RUN_ID} \
+  --wandb-project ${WANDB_PROJECT}
 
 python paraphraser.py \
   --dataset ${DATASET} \
@@ -53,9 +58,9 @@ python paraphraser.py \
   --src-lang ${SRC_LANG} \
   --tgt-lang ${TGT_LANG} \
   --paraphraser_name "Lelon/t5-german-paraphraser-large" \
-  --nr_paraphrases 1 \
+  --nr_paraphrases 2 \
   --batch_size 64 \
-  --temperature 1 \
+  --temperature 0.5 \
   --wandb-username ${WANDB_USERNAME} \
   --wandb-run-id ${WANDB_RUN_ID} \
   --wandb-project ${WANDB_PROJECT}
@@ -103,7 +108,7 @@ if [[ ! -f ${OUTPUT_DIR}/ref_based_rank.txt ]]; then
     --output ${OUTPUT_DIR}/ref_based_rank.txt
 fi
 
-if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${REF_BASED_SYS}_${KEPT_PORTION}.txt ]]; then
+if [[ ! -f ${OUTPUT_DIR}/selection_based_rank.txt ]]; then
   python selection_based_eval_qe.py \
     --dataset ${DATASET} \
     --data-root-path ${DATA_ROOT_PATH} \
@@ -121,21 +126,18 @@ if [[ ! -f ${OUTPUT_DIR}/selection_based_rank_${REF_BASED_SYS}_${KEPT_PORTION}.t
     --wandb-username ${WANDB_USERNAME} \
     --wandb-run-id ${WANDB_RUN_ID} \
     --wandb-project ${WANDB_PROJECT} \
-    --output ${OUTPUT_DIR}/selection_based_rank_${REF_BASED_SYS}_${KEPT_PORTION}.txt
+    --output ${OUTPUT_DIR}/selection_based_rank.txt
 fi
 
 if [[ ! -f ${OUTPUT_DIR}/meta_meta_eval_qe.txt ]]; then
   python meta_meta_eval_qe.py \
     --output-dir ${OUTPUT_DIR} \
     --gold-ranker "human_based_rank" \
-    --candidate-rankers "ref_based_rank" \
+    --candidate-rankers "ref_based_rank" "selection_based_rank" \
     --wandb-username ${WANDB_USERNAME} \
     --wandb-run-id ${WANDB_RUN_ID} \
     --wandb-project ${WANDB_PROJECT} \
     --eval-ranker-output-path ${OUTPUT_DIR}/meta_meta_eval_qe.txt
 fi
 
-# "selection_based_rank_XCOMET-XL_90"
-# "ref_based_rank" "selection_based_rank_BLEU_90" "selection_based_rank_CHRF_90" "selection_based_rank_XCOMET-XL_70" "selection_based_rank_XCOMET-XL_80" "selection_based_rank_XCOMET-XL_90" "selection_based_rank_XCOMET-XL_95" \
-
-#mv ${OUTPUT_DIR} ${OUTPUT_DIR}_${WANDB_RUN_ID}
+mv ${OUTPUT_DIR} ${OUTPUT_DIR}_${WANDB_RUN_ID}
