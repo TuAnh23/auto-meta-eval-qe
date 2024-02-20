@@ -4,6 +4,7 @@ from utils import load_data, format_for_comet, load_comet_model, dump_json, add_
 from sacrebleu.metrics import BLEU, CHRF, TER
 import os
 import wandb
+import bert_score
 
 
 def main():
@@ -22,7 +23,9 @@ def main():
     parser.add_argument('--comet-qe-systems', type=str, nargs='*')
     parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
     parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22'])
-    parser.add_argument('--ref-based-system', type=str, choices=['XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER'],
+    parser.add_argument('--ref-based-system', type=str, choices=[
+        'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
+    ],
                         default='wmt22-comet-da')
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
@@ -60,13 +63,14 @@ def main():
         qe_score = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
 
         gather_score(mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs, refs, ref_based_data_s,
-                    ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus)
+                    ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus, args.tgt_lang)
     if args.synthetic_qe_systems == '20-human-with-noise':
         for i in range(1, 21):
             synthetic_qe_score = add_noise(human_scores, noise_level=0.01 * i)
             gather_score(
                 mt, nr_discarded_samples, synthetic_qe_score, f'human_with_noise_{i}', qe_systems_outputs,
-                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
+                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus,
+                args.tgt_lang
             )
 
     if args.qe_official_submissions == 'wmt22':
@@ -81,7 +85,8 @@ def main():
             qe_score = np.array([float(x.split('\t')[-1]) for x in qe_score])
             gather_score(
                 mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs,
-                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus
+                refs, ref_based_data_s, ref_based_model, args.ref_based_system, args.batch_size, args.nr_gpus,
+                args.tgt_lang
             )
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
@@ -97,7 +102,7 @@ def main():
 
 def gather_score(
         mt, nr_discarded_samples, qe_score, qe_system, qe_systems_outputs,
-        refs, ref_based_data_s, ref_based_model, ref_based_system, batch_size, nr_gpus
+        refs, ref_based_data_s, ref_based_model, ref_based_system, batch_size, nr_gpus, tgt_lang
 ):
     """
     Calculate score of QE systems and append results to `qe_systems_outputs`
@@ -112,8 +117,8 @@ def gather_score(
             ).system_score
             for ref_based_data in ref_based_data_s
         ]
-        system_score = np.mean(np.array(system_scores), axis=0)  # TODO WEIGHT
-    else:
+        system_score = np.mean(np.array(system_scores), axis=0)
+    elif ref_based_system in ['BLEU', 'CHRF', 'TER']:
         metrics_dict = {
             'BLEU': BLEU(), 'CHRF': CHRF(), 'TER': TER()
         }
@@ -121,8 +126,19 @@ def gather_score(
             raise RuntimeError(f"Ref based system {ref_based_system} unknown.")
 
         system_score = metrics_dict[ref_based_system].corpus_score(
-            select_from_indices(mt, kept_indices), [select_from_indices(ref, kept_indices) for ref in refs]  # TODO WEIGHT
+            select_from_indices(mt, kept_indices), [select_from_indices(ref, kept_indices) for ref in refs]
         ).score
+    elif ref_based_system == 'bert-score':
+        system_scores = []
+        for ref in refs:
+            _, _, scores = bert_score.score(
+                select_from_indices(mt, kept_indices), select_from_indices(ref, kept_indices), lang=tgt_lang
+            )
+            system_scores.append(scores.numpy().mean())
+        system_score = float(np.mean(np.array(system_scores), axis=0))
+    else:
+        raise RuntimeError(f"Unknown ref_based_system {ref_based_system}.")
+
     qe_systems_outputs.append(
         {
             "name": qe_system,

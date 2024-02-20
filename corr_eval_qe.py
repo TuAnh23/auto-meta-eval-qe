@@ -21,6 +21,7 @@ import os
 import numpy as np
 from sacrebleu.metrics import BLEU, CHRF, TER
 import wandb
+import bert_score
 
 
 def main():
@@ -39,7 +40,9 @@ def main():
     parser.add_argument('--comet-qe-systems', type=str, nargs='*', default=[])
     parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
     parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22'])
-    parser.add_argument('--ref-based-system', type=str, choices=['XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER'],
+    parser.add_argument('--ref-based-system', type=str, choices=[
+        'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
+    ],
                         default='wmt22-comet-da')
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
@@ -90,6 +93,12 @@ def main():
             if args.ref_based_system == 'TER':
                 # Invert so that the higher the score, the beter the translation
                 ref_based_score = - ref_based_score
+        elif args.ref_based_system == 'bert-score':
+            ref_based_scores = []
+            for ref in refs:
+                _, _, scores = bert_score.score(mt, ref, lang=args.tgt_lang)
+                ref_based_scores.append(scores.numpy())
+            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
         else:
             raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
 
