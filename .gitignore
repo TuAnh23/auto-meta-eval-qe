@@ -1,2 +1,6 @@
 .DS_Store
 .idea/*
+analysis/*
+.ipynb_checkpoints/*
+__pycache__/*
+Analysis.ipynb

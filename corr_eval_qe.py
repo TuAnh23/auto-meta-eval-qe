@@ -15,7 +15,7 @@ https://huggingface.co/datasets/RicardoRei/wmt-mqm-human-evaluation
 import argparse
 from scipy.stats import spearmanr, pearsonr
 from utils import \
-    load_data, format_for_comet, load_comet_model, WilliamsTest, \
+    load_data, format_for_comet, load_comet_model, WilliamsTest, write_text_file, \
     dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run
 import os
 import numpy as np
@@ -46,7 +46,8 @@ def main():
                         default='wmt22-comet-da')
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
-    parser.add_argument('--output', type=str, help="Path to file that stores the ranking of the given QE systems")
+    parser.add_argument('--output-dir', type=str,
+                        help="Directory to save the file that stores the ranking of the given QE systems")
     parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_metrics"])
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
@@ -65,6 +66,8 @@ def main():
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
     )
     qe_data = format_for_comet(src, mt)
+
+    write_text_file(human_scores, f"{args.output_dir}/human_sent_scores.txt")
 
     wandb.log({'total_nr_refs': len(refs)})
 
@@ -109,6 +112,8 @@ def main():
             }
         )
 
+        write_text_file(ref_based_score.tolist(), f"{args.output_dir}/ref_based_sent_scores.txt")
+
     else:
         ref_based_score = None
 
@@ -152,7 +157,14 @@ def main():
     for item in ranked_qes:
         item.pop('sent_level_scores')
 
-    dump_json(ranked_qes, args.output)
+    if args.ground_truth == 'human':
+        out_file = f"{args.output_dir}/human_based_rank.txt"
+    elif args.ground_truth == 'ref_based_metrics':
+        out_file = f"{args.output_dir}/ref_based_rank.txt"
+    else:
+        raise RuntimeError(f"Unknown ground_truth {args.ground_truth}.")
+
+    dump_json(ranked_qes, out_file)
 
     wandb.log(
         {

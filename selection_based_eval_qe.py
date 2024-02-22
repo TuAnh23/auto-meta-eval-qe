@@ -30,7 +30,8 @@ def main():
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--kept-portion', type=int, default=90, help="in percentage")
-    parser.add_argument('--output', type=str, help="Path to file that stores the ranking of the given QE systems")
+    parser.add_argument('--output-dir', type=str,
+                        help="Directory to save file that stores the ranking of the given QE systems")
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
     parser.add_argument('--wandb-project', type=str, default="None")
@@ -91,7 +92,7 @@ def main():
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
 
-    dump_json(ranked_qes, args.output)
+    dump_json(ranked_qes, f"{args.output}/selection_based_rank.txt")
 
     wandb.log(
         {

@@ -1,12 +1,9 @@
 import pandas as pd
-from comet import download_model, load_from_checkpoint
 import numpy as np
-import torch
 import random
 import scipy
 import json
 from glob import glob
-import wandb
 
 
 def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
@@ -81,6 +78,8 @@ def format_for_sent_level_sacrebleu(src, mt, refs):
 
 
 def load_comet_model(comet_model_root_path, qe_system):
+    from comet import download_model, load_from_checkpoint
+
     if qe_system in ["wmt22-cometkiwi-da", "wmt20-comet-qe-da", "wmt22-comet-da", "wmt23-cometkiwi-da-xl", "XCOMET-XL"]:
         model_path = download_model(f"Unbabel/{qe_system}")
     else:
@@ -150,6 +149,8 @@ def set_seed(seed=0):
     Args:
         seed (int, optional): random seed. Default 0
     """
+    import torch
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -158,6 +159,8 @@ def set_seed(seed=0):
 
 
 def init_wandb_run(args, log_keys):
+    import wandb
+
     args_dict = vars(args)
     config_dict = {
         k: '/'.join(args_dict[k]) if isinstance(args_dict[k], list) else args_dict[k] for k in log_keys
