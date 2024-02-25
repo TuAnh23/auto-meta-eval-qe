@@ -15,7 +15,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 DATASET="wmt22-testmetrics"
 DATA_DOMAIN="all"  # "news" "all"
-REF_BASED_SYS="TER" # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
+REF_BASED_SYS="wmt22-comet-da" # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
 NR_ORIGINAL_REFERENCE="mul"  # "single", "mul"
 
 SRC_LANG="en"

@@ -9,10 +9,14 @@ from glob import glob
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, choices=["wmt22-testqe-mqm"],
-                        default="wmt22-testqe-mqm",
-                        help="WMT22 QE test is based on Newstest2022, "
-                             "which is the only part that XCOMET is not trained on")
+    parser.add_argument(
+        '--dataset', type=str, choices=[
+            "wmt22-testqe-mqm",  # Based on Newstest2022, single MT output, the only part that XCOMET is not trained on
+            "wmt22-testmetrics",
+            # Based on General test 2022, multiple MT outputs, should not use XCOMET because of data leakage
+            # wmt23 en-de is on paragraph level.
+        ],
+        default="wmt22-testqe-mqm")
     parser.add_argument('--data-root-path', type=str)
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
@@ -42,8 +46,15 @@ def main():
         device = torch.device("cpu")
     pipe = pipeline("text2text-generation", model=args.paraphraser_name, device=device)
 
-    if args.dataset == "wmt22-testqe-mqm":
-        data_dir = f"{args.data_root_path}/wmt22_news_MT/{args.src_lang}-{args.tgt_lang}"
+    if args.dataset in ["wmt22-testqe-mqm", "wmt22-testmetrics"]:
+        if args.dataset == "wmt22-testqe-mqm":
+            mt_test_set = "wmt22_news_MT"
+        elif args.dataset == "wmt22-testmetrics":
+            mt_test_set = "wmt22_general_MT"
+        else:
+            raise RuntimeError(f"mt_test_set not yet defined for {args.dataset}")
+
+        data_dir = f"{args.data_root_path}/{mt_test_set}/{args.src_lang}-{args.tgt_lang}"
         original_ref_list = ["ref:A"]
 
         # Remove previous paraphrased files
