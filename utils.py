@@ -30,7 +30,7 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         score_nomralized = (df['score'].to_numpy() - min) / (max - min)
         if f"{src_lang}-{tgt_lang}" not in ["en-de", "en-zh"]:
             raise RuntimeError(f"Not sure if MQM normalizing is correct for language pair {src_lang}-{tgt_lang}")
-        return df['src'].to_list(), df['mt'].to_list(), [df['ref'].to_list()], score_nomralized
+        return df['src'].to_list(), {"-": df['mt'].to_list()}, [df['ref'].to_list()], {"-": score_nomralized}
     elif dataset == f"wmt22-testqe-mqm":
         src = load_text_file(
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.src"
@@ -51,6 +51,50 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         mqm_z_score = [float(x) for x in mqm_z_score]
 
         return src, mt, refs, mqm_z_score
+
+    elif dataset == f"wmt22-testmetrics":
+        src = load_text_file(
+            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/src.{src_lang}"
+        )
+
+        refs = []
+        for ref_file in glob(f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt_ref*.{tgt_lang}"):
+            ref = load_text_file(ref_file)
+            refs.append(ref)
+
+        mt = {}
+        for mt_file in glob(
+                f"{data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/system-outputs/{src_lang}-{tgt_lang}/*.txt"
+        ):
+            mt[mt_file.split('/')[-1].replace(".txt", "")] = load_text_file(mt_file)
+
+        mqm_score = pd.read_csv(
+            f"{data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/human-scores/{src_lang}-"
+            f"{tgt_lang}.mqm.seg.score",
+            names=["MT_system", "score"], header=None, delimiter="\t"
+        ).groupby(
+            by="MT_system"
+        )['score'].apply(list).to_dict()
+
+        # Remove the scoring on human translations
+        ref_keys = [x for x in mqm_score.keys() if "ref" in x]
+        for ref_key in ref_keys:
+            mqm_score.pop(ref_key)
+            mt.pop(ref_key)
+
+        # Remove the scoring from outlier systems
+        outlier_keys = []
+        if f"{src_lang}-{tgt_lang}" == "en-de":
+            outlier_keys.append('M2M100_1.2B-B4')
+        else:
+            raise RuntimeWarning(f"Check for outlier system for language pair {src_lang}-{tgt_lang}.")
+
+        for outlier_key in outlier_keys:
+            mqm_score.pop(outlier_key)
+            mt.pop(outlier_key)
+
+        return src, mt, refs, mqm_score
+
     else:
         raise RuntimeError(f"Dataset {dataset} unknown")
 
@@ -175,7 +219,7 @@ def calculate_pairwise_ranking_accuracy(pred_scores, gold_scores):
     pred_rank_binary = ranking_scores_to_binary(pred_scores)
     gold_rank_binary = ranking_scores_to_binary(gold_scores)
     compare = np.equal(pred_rank_binary, gold_rank_binary).astype(int)
-    return sum(compare) / len(compare)
+    return sum(compare) / len(compare) if len(compare) > 0 else None
 
 
 def ranking_scores_to_binary(scores):

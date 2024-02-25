@@ -8,10 +8,13 @@ import wandb
 
 def main():
     parser = argparse.ArgumentParser("Gather references for some QE dataset")
-    parser.add_argument('--dataset', type=str, choices=["wmt22-testqe-mqm"],
-                        default="wmt22-testqe-mqm",
-                        help="WMT22 QE test is based on Newstest2022, "
-                             "which is the only part that XCOMET is not trained on")
+    parser.add_argument(
+        '--dataset', type=str, choices=[
+            "wmt22-testqe-mqm",  # Based on Newstest2022, single MT output, the only part that XCOMET is not trained on
+            "wmt22-testmetrics",  # Based on General test 2022, multiple MT outputs, should not use XCOMET because of data leakage
+            # wmt23 en-de is on paragraph level.
+        ],
+        default="wmt22-testqe-mqm")
     parser.add_argument('--data-root-path', type=str)
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
@@ -61,6 +64,30 @@ def main():
             ref = [src_ref[s] for s in src]
             write_text_file(ref, f"{output_dir}/{ref_file.split('/')[-1]}")
 
+        wandb.log({'nr_original_refs': count_ref})
+    elif args.dataset == "wmt22-testmetrics":
+        output_dir = f"{args.data_root_path}/wmt22_general_MT/{args.src_lang}-{args.tgt_lang}"
+        if os.path.isdir(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
+
+        original_data_dir = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/"
+
+        shutil.copyfile(f"{original_data_dir}/sources/{args.src_lang}-{args.tgt_lang}.txt",
+                        f"{output_dir}/src.{args.src_lang}")
+        count_ref = 0
+        if args.nr_refs == "single":
+            ref_ids = ['A']
+        elif args.nr_refs == "mul":
+            ref_ids = ['A', 'B', 'C', 'D', 'E']
+        else:
+            raise RuntimeError(f"nr_refs {args.nr_refs} unknown. Choose `single` or `mul`.")
+
+        for ref_id in ref_ids:
+            if os.path.isfile(f"{original_data_dir}/references/{args.src_lang}-{args.tgt_lang}.ref{ref_id}.txt"):
+                shutil.copyfile(f"{original_data_dir}/references/{args.src_lang}-{args.tgt_lang}.ref{ref_id}.txt",
+                                f"{output_dir}/tgt_ref:{ref_id}.{args.tgt_lang}")
+                count_ref = count_ref + 1
         wandb.log({'nr_original_refs': count_ref})
 
 

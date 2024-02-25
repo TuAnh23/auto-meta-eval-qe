@@ -2,13 +2,14 @@ import argparse
 from scipy.stats import spearmanr
 from utils import load_json, dump_json, init_wandb_run, calculate_pairwise_ranking_accuracy
 import wandb
+from glob import glob
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=str)
     parser.add_argument("--gold-ranker", type=str)
-    parser.add_argument("--candidate-rankers", type=str, nargs='*')
+    parser.add_argument("--candidate-ranker", type=str)
     parser.add_argument("--eval-ranker-output-path", type=str,
                         help="Path to the output of this script: the score for the candidate ranker")
     parser.add_argument('--wandb-username', type=str, default="None")
@@ -21,27 +22,33 @@ def main():
     log_keys = []
     init_wandb_run(args, log_keys)
 
-    gold_ranker_out = load_json(f"{args.output_dir}/{args.gold_ranker}.txt")
-    gold_ranker_out = reformat(gold_ranker_out)
-    gold_ranker_scores = list(gold_ranker_out.values())
-    qe_names = gold_ranker_out.keys()
+    eval_candidate_ranker = {}
+    for file in glob(f"{args.output_dir}/{args.candidate_ranker}*.txt"):
+        out_suffix = file.replace(f"{args.output_dir}/{args.candidate_ranker}", "").replace(".txt", "")
 
-    eval_candidate_rankers = {}
-    for candidate_ranker in args.candidate_rankers:
-        candidate_ranker_out = load_json(f"{args.output_dir}/{candidate_ranker}.txt")
+        gold_ranker_out = load_json(f"{args.output_dir}/{args.gold_ranker}{out_suffix}.txt")
+        gold_ranker_out = reformat(gold_ranker_out)
+        gold_ranker_scores = list(gold_ranker_out.values())
+        qe_names = gold_ranker_out.keys()
+
+        if out_suffix == "":
+            mt_system = "all"
+        else:
+            mt_system = out_suffix[1:]
+        candidate_ranker_out = load_json(file)
         candidate_ranker_out = reformat(candidate_ranker_out)
         candidate_ranker_scores = [candidate_ranker_out[name] for name in qe_names]
-        eval_candidate_rankers[candidate_ranker] = spearmanr(candidate_ranker_scores, gold_ranker_scores)
+        eval_candidate_ranker[mt_system] = spearmanr(candidate_ranker_scores, gold_ranker_scores)
         pairwise_ranking_accuracy = calculate_pairwise_ranking_accuracy(candidate_ranker_scores, gold_ranker_scores)
 
         wandb.log(
             {
-                f"{candidate_ranker}_corr_of_corr": eval_candidate_rankers[candidate_ranker][0],
-                f"{candidate_ranker}_pairwise_ranking_accuracy": pairwise_ranking_accuracy,
+                f"{args.candidate_ranker}_corr_of_corr{out_suffix}": eval_candidate_ranker[mt_system][0],
+                f"{args.candidate_ranker}_pairwise_ranking_accuracy{out_suffix}": pairwise_ranking_accuracy,
             }
         )
 
-    dump_json(eval_candidate_rankers, args.eval_ranker_output_path)
+    dump_json(eval_candidate_ranker, args.eval_ranker_output_path)
 
 
 def reformat(ranker_out):
