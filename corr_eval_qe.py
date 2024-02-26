@@ -49,10 +49,17 @@ def main():
     parser.add_argument('--comet-qe-systems', type=str, nargs='*', default=[])
     parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
     parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22', 'wmt22-qe-metrics'])
-    parser.add_argument('--ref-based-system', type=str, choices=[
-        'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
-    ],
-                        default='wmt22-comet-da')
+    parser.add_argument(
+        '--ref-based-system',
+        type=str,
+        choices=[
+            'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score',
+            'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020'
+        ],
+        default='wmt22-comet-da',
+        help="metricx_xxl_MQM_2020 and metricx_xl_MQM_2020 models not available, so you scores submissions,"
+             "which is only available for dataset=wmt22-testmetrics"
+    )
     parser.add_argument('--nr-gpus', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--output-dir', type=str,
@@ -79,7 +86,7 @@ def main():
 
     mt_systems_order = list(mt.keys())
     src_all = []
-    refs_all = [[] for i in range(len(refs))]
+    refs_all = {k: [] for k in refs.keys()}
     mt_all = []
     human_scores_all = []
     qe_systems_outputs_all = []
@@ -87,8 +94,8 @@ def main():
         qe_systems_outputs = do_rank_qes(args, human_scores[mt_system], mt[mt_system], refs, src, mt_system=mt_system)
         qe_systems_outputs_all.append(qe_systems_outputs)
         src_all.extend(src)
-        for i, ref_all in enumerate(refs_all):
-            ref_all.extend(refs[i])
+        for k in refs.keys():
+            refs_all[k].extend(refs[k])
         mt_all.extend(mt[mt_system])
         human_scores_all.append(human_scores[mt_system])
 
@@ -108,8 +115,8 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
     if mt_system == "all":
         wandb.log({'total_nr_refs': len(refs)})
     if args.ground_truth == 'ref_based_metrics':
-        if 'comet' in args.ref_based_system.lower():
-            ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs]
+        if 'comet' in args.ref_based_system.lower() or 'unite' in args.ref_based_system.lower():
+            ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs.values()]
             ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
             ref_based_scores = [
                 ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
@@ -122,7 +129,7 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                 'CHRF': CHRF(),
                 'TER': TER()
             }
-            src, mt, formatted_refs = format_for_sent_level_sacrebleu(src, mt, refs)
+            src, mt, formatted_refs = format_for_sent_level_sacrebleu(src, mt, list(refs.values()))
             ref_based_score = np.array(
                 [
                     metrics_dict[args.ref_based_system].sentence_score(mt[i], formatted_refs[i]).score
@@ -134,9 +141,43 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                 ref_based_score = - ref_based_score
         elif args.ref_based_system == 'bert-score':
             ref_based_scores = []
-            for ref in refs:
+            for ref in refs.values():
                 _, _, scores = bert_score.score(mt, ref, lang=args.tgt_lang)
                 ref_based_scores.append(scores.numpy())
+            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+        elif args.ref_based_system == 'bleurt':
+            import sentencepiece as spm
+            from bleurt import score
+
+            checkpoint = "../models/BLEURT-20"
+            scorer = score.BleurtScorer(checkpoint)
+            ref_based_scores = []
+            for ref in refs.values():
+                scores = scorer.score(references=ref, candidates=mt)
+                ref_based_scores.append(scores)
+            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+        elif args.ref_based_system in ['metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020']:
+            assert args.dataset == "wmt22-testmetrics"
+            submissions_root_path = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/metric-scores/" \
+                                    f"{args.src_lang}-{args.tgt_lang}"
+            ref_based_scores = []
+            for ref_name, ref_sents in refs.items():
+                if "paraphrased" in ref_name:
+                    raise RuntimeError(
+                        f"Using {args.ref_based_system} submission scores, which is only available for original refs."
+                    )
+                ref_name = ref_name.replace(':', '')
+                metric_file = f"{submissions_root_path}/{args.ref_based_system}-{ref_name}.seg.score"
+                scores = pd.read_csv(
+                    metric_file, names=["MT_system", "score"], header=None, delimiter="\t"
+                ).groupby(
+                    by="MT_system"
+                )['score'].apply(list).to_dict()
+                if mt_system == "all":
+                    scores = np.concatenate([scores[x] for x in mt_systems_order])
+                else:
+                    scores = scores[mt_system]
+                ref_based_scores.append(scores)
             ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
         else:
             raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
@@ -160,8 +201,8 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
     success = False
     for qe_system in args.comet_qe_systems:
         qe_model = load_comet_model(args.comet_model_root_path, qe_system)
-        qe_score = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
-        success = gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based_score, args.ground_truth)
+        scores = qe_model.predict(qe_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
+        success = gather_corr(human_scores, scores, qe_system, qe_systems_outputs, ref_based_score, args.ground_truth)
     if args.synthetic_qe_systems == '20-human-with-noise':
         for i in range(1, 21):
             synthetic_qe_score = add_noise(human_scores, noise_level=0.01 * i)
@@ -180,10 +221,10 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
 
         for participant in participants:
             qe_system = participant.split(' - ')[0]
-            qe_score = load_text_file(f"{submissions_root_path}/{participant}/predictions.txt")[3:]
-            qe_score = np.array([float(x.split('\t')[-1]) for x in qe_score])
+            scores = load_text_file(f"{submissions_root_path}/{participant}/predictions.txt")[3:]
+            scores = np.array([float(x.split('\t')[-1]) for x in scores])
             success = gather_corr(human_scores=human_scores,
-                                  qe_score=qe_score,
+                                  qe_score=scores,
                                   qe_system=qe_system,
                                   qe_systems_outputs=qe_systems_outputs,
                                   ref_based_score=ref_based_score,
@@ -193,17 +234,17 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
         submissions_root_path = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/metric-scores/{args.src_lang}-{args.tgt_lang}"
         for qe_file in glob(f"{submissions_root_path}/*-src.seg.score"):
             participant = qe_file.split('/')[-1].replace("-src.seg.score", "")
-            qe_score = pd.read_csv(
+            scores = pd.read_csv(
                 qe_file, names=["MT_system", "score"], header=None, delimiter="\t"
             ).groupby(
                 by="MT_system"
             )['score'].apply(list).to_dict()
             if mt_system == "all":
-                qe_score = np.concatenate([qe_score[x] for x in mt_systems_order])
+                scores = np.concatenate([scores[x] for x in mt_systems_order])
             else:
-                qe_score = qe_score[mt_system]
+                scores = scores[mt_system]
             success = gather_corr(human_scores=human_scores,
-                                  qe_score=qe_score,
+                                  qe_score=scores,
                                   qe_system=participant,
                                   qe_systems_outputs=qe_systems_outputs,
                                   ref_based_score=ref_based_score,

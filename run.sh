@@ -10,13 +10,14 @@ which python
 export TORCH_HOME=/project/OML/tdinh/.cache/torch
 export HF_HOME=/project/OML/tdinh/.cache/huggingface
 
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=$4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 DATASET="wmt22-testmetrics"
 DATA_DOMAIN="all"  # "news" "all"
-REF_BASED_SYS="wmt22-comet-da" # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score'
-NR_ORIGINAL_REFERENCE="mul"  # "single", "mul"
+REF_BASED_SYS=$1  # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score', 'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020'
+NR_ORIGINAL_REFERENCE=$2  # "single", "mul"
+NR_PARAPHRASE_EACH_REF=$3
 
 SRC_LANG="en"
 TGT_LANG="de"
@@ -25,7 +26,7 @@ declare -a QE_SYSTEMS=(  ) # "wmt22-cometkiwi-da" "wmt21-comet-qe-da" "wmt21-com
 SYNTHETIC_QE_SYSTEMS="None"  # "20-human-with-noise"
 QE_OFFICIAL_SUBMISSIONS="wmt22-qe-metrics"  # "wmt22" "None" "wmt22-testmetrics"
 
-EXP_NAME="rank_wmt22_official_submissions"
+EXP_NAME="rank_wmt22_official_submissions_${REF_BASED_SYS}_${NR_ORIGINAL_REFERENCE}_${NR_PARAPHRASE_EACH_REF}"
 OUTPUT_DIR="output/${EXP_NAME}"
 rm -rf ${OUTPUT_DIR}
 mkdir -p ${OUTPUT_DIR}
@@ -50,18 +51,27 @@ python process_data.py \
   --wandb-run-id ${WANDB_RUN_ID} \
   --wandb-project ${WANDB_PROJECT}
 
-python paraphraser.py \
-  --dataset ${DATASET} \
-  --data-root-path ${DATA_ROOT_PATH} \
-  --src-lang ${SRC_LANG} \
-  --tgt-lang ${TGT_LANG} \
-  --paraphraser_name "Lelon/t5-german-paraphraser-large" \
-  --nr_paraphrases 1 \
-  --batch_size 64 \
-  --temperature 0 \
-  --wandb-username ${WANDB_USERNAME} \
-  --wandb-run-id ${WANDB_RUN_ID} \
-  --wandb-project ${WANDB_PROJECT}
+if [[ ${NR_PARAPHRASE_EACH_REF} -gt 0 ]]; then
+  if [[ ${NR_PARAPHRASE_EACH_REF} == 1 ]]; then
+    TEMPERATURE=0
+  elif [[ ${NR_PARAPHRASE_EACH_REF} == 2 ]]; then
+    TEMPERATURE=0.5
+  else
+    TEMPERATURE=1
+  fi
+  python paraphraser.py \
+    --dataset ${DATASET} \
+    --data-root-path ${DATA_ROOT_PATH} \
+    --src-lang ${SRC_LANG} \
+    --tgt-lang ${TGT_LANG} \
+    --paraphraser_name "Lelon/t5-german-paraphraser-large" \
+    --nr_paraphrases ${NR_PARAPHRASE_EACH_REF} \
+    --batch_size 64 \
+    --temperature ${TEMPERATURE} \
+    --wandb-username ${WANDB_USERNAME} \
+    --wandb-run-id ${WANDB_RUN_ID} \
+    --wandb-project ${WANDB_PROJECT}
+fi
 
 
 if [[ ! -f ${OUTPUT_DIR}/human_based_rank.txt ]]; then
