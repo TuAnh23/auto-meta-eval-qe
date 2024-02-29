@@ -13,9 +13,9 @@ export HF_HOME=/project/OML/tdinh/.cache/huggingface
 export CUDA_VISIBLE_DEVICES=$4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-DATASET="wmt22-testmetrics"
+DATASET="wmt22-testmetrics"  # "wmt22-testmetrics" "wmt22-testqe-mqm"
 DATA_DOMAIN="all"  # "news" "all"
-REF_BASED_SYS=$1  # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score', 'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020'
+REF_BASED_SYS=$1  # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score', 'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020', "metricx-23-xl-v2p0"
 NR_ORIGINAL_REFERENCE=$2  # "single", "mul"
 NR_PARAPHRASE_EACH_REF=$3
 
@@ -24,7 +24,7 @@ TGT_LANG="de"
 
 declare -a QE_SYSTEMS=(  ) # "wmt22-cometkiwi-da" "wmt21-comet-qe-da" "wmt21-comet-qe-mqm" "wmt20-comet-qe-da" "wmt23-cometkiwi-da-xl" )
 SYNTHETIC_QE_SYSTEMS="None"  # "20-human-with-noise"
-QE_OFFICIAL_SUBMISSIONS="wmt22-qe-metrics"  # "wmt22" "None" "wmt22-testmetrics"
+QE_OFFICIAL_SUBMISSIONS="wmt22-qe-metrics"  # "wmt22" "None" "wmt22-qe-metrics"
 
 EXP_NAME="rank_wmt22_official_submissions_${REF_BASED_SYS}_${NR_ORIGINAL_REFERENCE}_${NR_PARAPHRASE_EACH_REF}"
 OUTPUT_DIR="output/${EXP_NAME}"

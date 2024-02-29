@@ -56,6 +56,7 @@ def main():
             )
         else:
             raise RuntimeError(f"nr_refs {args.nr_refs} unknown. Choose `single` or `mul`.")
+        ref_files_iter = [x for x in ref_files_iter if 'paraphrased' not in x]
         count_ref = 0
         for ref_file in ref_files_iter:
             count_ref = count_ref + 1

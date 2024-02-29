@@ -54,7 +54,8 @@ def main():
         type=str,
         choices=[
             'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score',
-            'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020'
+            'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020',
+            'metricx-23-xl-v2p0'
         ],
         default='wmt22-comet-da',
         help="metricx_xxl_MQM_2020 and metricx_xl_MQM_2020 models not available, so you scores submissions,"
@@ -178,6 +179,14 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                 else:
                     scores = scores[mt_system]
                 ref_based_scores.append(scores)
+            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+        elif args.ref_based_system in ["metricx-23-xl-v2p0"]:
+            from metricx23_predict import calculate_ref_based_score
+            ref_based_scores = []
+            for ref in refs.values():
+                scores = calculate_ref_based_score(mt, ref)
+                # Invert so that the higher the score, the beter the translation
+                ref_based_scores.append(-np.array(scores))
             ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
         else:
             raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")

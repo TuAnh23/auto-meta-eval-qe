@@ -35,9 +35,11 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         src = load_text_file(
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.src"
         )
-        mt = load_text_file(
-            f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.mt"
-        )
+        mt = {
+            '-': load_text_file(
+                f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.mt"
+            )
+        }
 
         # Getting the references from the wmt22 news MT test set
         refs = {}
@@ -47,7 +49,7 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         mqm_z_score = load_text_file(
             f"{data_root_path}/wmt-qe-2022-data/test_data-gold_labels/task1_mqm/{src_lang}-{tgt_lang}/test.2022.{src_lang}-{tgt_lang}.mqm_z_score"
         )
-        mqm_z_score = [float(x) for x in mqm_z_score]
+        mqm_z_score = {'-': [float(x) for x in mqm_z_score]}
 
         return src, mt, refs, mqm_z_score
 
