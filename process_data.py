@@ -1,7 +1,7 @@
 import argparse
 import os.path
 import shutil
-from utils import load_text_file, write_text_file, init_wandb_run
+from utils import load_text_file, write_text_file, init_wandb_run, filter_by_domain
 from glob import glob
 import wandb
 
@@ -19,6 +19,9 @@ def main():
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
     parser.add_argument('--nr-refs', type=str, choices=["single", "mul"])
+    parser.add_argument('--data-domain',
+                        type=str, default='all',
+                        choices=['all', 'conversation', 'ecommerce', 'news', 'social'])
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
     parser.add_argument('--wandb-project', type=str, default="None")
@@ -30,6 +33,7 @@ def main():
     init_wandb_run(args, log_keys)
 
     if args.dataset == "wmt22-testqe-mqm":
+        assert args.data_domain == "news"
         output_dir = f"{args.data_root_path}/wmt22_news_MT/{args.src_lang}-{args.tgt_lang}"
 
         if os.path.isdir(output_dir):
@@ -67,15 +71,22 @@ def main():
 
         wandb.log({'nr_original_refs': count_ref})
     elif args.dataset == "wmt22-testmetrics":
-        output_dir = f"{args.data_root_path}/wmt22_general_MT/{args.src_lang}-{args.tgt_lang}"
+        if args.data_domain == 'all':
+            output_dir = f"{args.data_root_path}/wmt22_general_MT/{args.src_lang}-{args.tgt_lang}"
+        else:
+            output_dir = f"{args.data_root_path}/wmt22_general_MT_{args.data_domain}/{args.src_lang}-{args.tgt_lang}"
         if os.path.isdir(output_dir):
             shutil.rmtree(output_dir)
         os.makedirs(output_dir)
 
         original_data_dir = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/"
 
-        shutil.copyfile(f"{original_data_dir}/sources/{args.src_lang}-{args.tgt_lang}.txt",
-                        f"{output_dir}/src.{args.src_lang}")
+        # Load src file
+        src = load_text_file(f"{original_data_dir}/sources/{args.src_lang}-{args.tgt_lang}.txt")
+        domain_list = load_text_file(f"{original_data_dir}/sources/{args.src_lang}-{args.tgt_lang}_domain.txt")
+        src = filter_by_domain(args.data_domain, domain_list, src)
+        write_text_file(src, f"{output_dir}/src.{args.src_lang}")
+
         count_ref = 0
         if args.nr_refs == "single":
             ref_ids = ['A']
@@ -86,8 +97,9 @@ def main():
 
         for ref_id in ref_ids:
             if os.path.isfile(f"{original_data_dir}/references/{args.src_lang}-{args.tgt_lang}.ref{ref_id}.txt"):
-                shutil.copyfile(f"{original_data_dir}/references/{args.src_lang}-{args.tgt_lang}.ref{ref_id}.txt",
-                                f"{output_dir}/tgt_ref:{ref_id}.{args.tgt_lang}")
+                ref = load_text_file(f"{original_data_dir}/references/{args.src_lang}-{args.tgt_lang}.ref{ref_id}.txt")
+                ref = filter_by_domain(args.data_domain, domain_list, ref)
+                write_text_file(ref, f"{output_dir}/tgt_ref:{ref_id}.{args.tgt_lang}")
                 count_ref = count_ref + 1
         wandb.log({'nr_original_refs': count_ref})
 

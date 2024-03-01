@@ -14,8 +14,8 @@ export CUDA_VISIBLE_DEVICES=$4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 DATASET="wmt22-testmetrics"  # "wmt22-testmetrics" "wmt22-testqe-mqm"
-DATA_DOMAIN="all"  # "news" "all"
-REF_BASED_SYS=$1  # 'XCOMET-XL', 'wmt22-comet-da', 'BLEU', 'CHRF', 'TER', 'bert-score', 'bleurt', 'unite-mup', 'metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020', "metricx-23-xl-v2p0"
+DATA_DOMAIN="news"  # 'all', 'conversation', 'ecommerce', 'news', 'social'
+REF_BASED_SYS=$1  # 'XCOMET-XL' 'wmt22-comet-da' 'BLEU' 'CHRF' 'TER' 'bert-score' 'bleurt' 'unite-mup' 'metricx_xxl_MQM_2020' 'metricx_xl_MQM_2020' "metricx-23-xl-v2p0"
 NR_ORIGINAL_REFERENCE=$2  # "single", "mul"
 NR_PARAPHRASE_EACH_REF=$3
 
@@ -26,7 +26,13 @@ declare -a QE_SYSTEMS=(  ) # "wmt22-cometkiwi-da" "wmt21-comet-qe-da" "wmt21-com
 SYNTHETIC_QE_SYSTEMS="None"  # "20-human-with-noise"
 QE_OFFICIAL_SUBMISSIONS="wmt22-qe-metrics"  # "wmt22" "None" "wmt22-qe-metrics"
 
-EXP_NAME="rank_wmt22_official_submissions_${REF_BASED_SYS}_${NR_ORIGINAL_REFERENCE}_${NR_PARAPHRASE_EACH_REF}"
+if [[ ${REF_BASED_SYS} == 'bleurt' ]]; then
+  . .venv/bin/activate
+elif [[ ${REF_BASED_SYS} == 'metricx-23-xl-v2p0' ]]; then
+  . .metricx/bin/activate
+fi
+
+EXP_NAME="rank_${QE_OFFICIAL_SUBMISSIONS}_${DATA_DOMAIN}_${REF_BASED_SYS}_${NR_ORIGINAL_REFERENCE}_${NR_PARAPHRASE_EACH_REF}"
 OUTPUT_DIR="output/${EXP_NAME}"
 rm -rf ${OUTPUT_DIR}
 mkdir -p ${OUTPUT_DIR}
@@ -44,6 +50,7 @@ echo ${WANDB_RUN_ID} > ${OUTPUT_DIR}/wandb_run_id.txt
 python process_data.py \
   --dataset ${DATASET} \
   --data-root-path ${DATA_ROOT_PATH} \
+  --data-domain ${DATA_DOMAIN} \
   --src-lang ${SRC_LANG} \
   --tgt-lang ${TGT_LANG} \
   --nr-refs ${NR_ORIGINAL_REFERENCE} \
@@ -125,6 +132,10 @@ if [[ ! -f ${OUTPUT_DIR}/meta_meta_eval_qe.txt ]]; then
     --wandb-run-id ${WANDB_RUN_ID} \
     --wandb-project ${WANDB_PROJECT} \
     --eval-ranker-output-path ${OUTPUT_DIR}/meta_meta_eval_qe.txt
+fi
+
+if [[ ( ${REF_BASED_SYS} == 'bleurt' ) || ( ${REF_BASED_SYS} == 'metricx-23-xl-v2p0' ) ]]; then
+  deactivate
 fi
 
 mv ${OUTPUT_DIR} ${OUTPUT_DIR}_${WANDB_RUN_ID}

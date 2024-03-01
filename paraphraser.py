@@ -27,6 +27,9 @@ def main():
                         help="(Default: 1.0). Float (0.0-100.0). The temperature of the sampling operation. 1 means "
                              "regular sampling, 0 means always take the highest score, 100.0 is getting closer to "
                              "uniform probability.")
+    parser.add_argument('--data-domain',
+                        type=str, default='all',
+                        choices=['all', 'conversation', 'ecommerce', 'news', 'social'])
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
     parser.add_argument('--wandb-project', type=str, default="None")
@@ -50,7 +53,10 @@ def main():
         if args.dataset == "wmt22-testqe-mqm":
             mt_test_set = "wmt22_news_MT"
         elif args.dataset == "wmt22-testmetrics":
-            mt_test_set = "wmt22_general_MT"
+            if args.data_domain == 'all':
+                mt_test_set = "wmt22_general_MT"
+            else:
+                mt_test_set = f"wmt22_general_MT_{args.data_domain}"
         else:
             raise RuntimeError(f"mt_test_set not yet defined for {args.dataset}")
 

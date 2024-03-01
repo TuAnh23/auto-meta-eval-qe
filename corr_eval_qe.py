@@ -16,7 +16,7 @@ import argparse
 from scipy.stats import spearmanr, pearsonr, kendalltau
 from utils import \
     load_data, format_for_comet, load_comet_model, WilliamsTest, write_text_file, \
-    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run
+    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run, filter_by_domain
 import os
 import numpy as np
 import pandas as pd
@@ -161,6 +161,10 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
             assert args.dataset == "wmt22-testmetrics"
             submissions_root_path = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/metric-scores/" \
                                     f"{args.src_lang}-{args.tgt_lang}"
+            domain_list = load_text_file(
+                f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/sources/{args.src_lang}-{args.tgt_lang}_domain.txt"
+            )
+
             ref_based_scores = []
             for ref_name, ref_sents in refs.items():
                 if "paraphrased" in ref_name:
@@ -173,7 +177,7 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                     metric_file, names=["MT_system", "score"], header=None, delimiter="\t"
                 ).groupby(
                     by="MT_system"
-                )['score'].apply(list).to_dict()
+                )['score'].apply(list).apply(lambda x: filter_by_domain(args.data_domain, domain_list, x)).to_dict()
                 if mt_system == "all":
                     scores = np.concatenate([scores[x] for x in mt_systems_order])
                 else:
@@ -240,6 +244,10 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                                   ground_truth=args.ground_truth)
     elif args.qe_official_submissions == 'wmt22-qe-metrics':
         assert args.dataset == "wmt22-testmetrics"
+        domain_list = load_text_file(
+            f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/sources/{args.src_lang}-"
+            f"{args.tgt_lang}_domain.txt"
+        )
         submissions_root_path = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/metric-scores/{args.src_lang}-{args.tgt_lang}"
         for qe_file in glob(f"{submissions_root_path}/*-src.seg.score"):
             participant = qe_file.split('/')[-1].replace("-src.seg.score", "")
@@ -247,7 +255,7 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
                 qe_file, names=["MT_system", "score"], header=None, delimiter="\t"
             ).groupby(
                 by="MT_system"
-            )['score'].apply(list).to_dict()
+            )['score'].apply(list).apply(lambda x: filter_by_domain(args.data_domain, domain_list, x)).to_dict()
             if mt_system == "all":
                 scores = np.concatenate([scores[x] for x in mt_systems_order])
             else:

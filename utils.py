@@ -54,27 +54,36 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
         return src, mt, refs, mqm_z_score
 
     elif dataset == f"wmt22-testmetrics":
+        if data_domain == 'all':
+            mt_test_set = "wmt22_general_MT"
+        else:
+            mt_test_set = f"wmt22_general_MT_{data_domain}"
         src = load_text_file(
-            f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/src.{src_lang}"
+            f"{data_root_path}/{mt_test_set}/{src_lang}-{tgt_lang}/src.{src_lang}"
         )
 
         refs = {}
-        for ref_file in glob(f"{data_root_path}/wmt22_general_MT/{src_lang}-{tgt_lang}/tgt_ref*.{tgt_lang}"):
+        for ref_file in glob(f"{data_root_path}/{mt_test_set}/{src_lang}-{tgt_lang}/tgt_ref*.{tgt_lang}"):
             refs[ref_file.split('/')[-1].split('.')[0].replace('tgt_', '')] = load_text_file(ref_file)
+
+        original_data_dir = f"{data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22"
+        domain_list = load_text_file(f"{original_data_dir}/sources/{src_lang}-{tgt_lang}_domain.txt")
 
         mt = {}
         for mt_file in glob(
-                f"{data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/system-outputs/{src_lang}-{tgt_lang}/*.txt"
+                f"{original_data_dir}/system-outputs/{src_lang}-{tgt_lang}/*.txt"
         ):
-            mt[mt_file.split('/')[-1].replace(".txt", "")] = load_text_file(mt_file)
+            mt[mt_file.split('/')[-1].replace(".txt", "")] = filter_by_domain(
+                data_domain, domain_list, load_text_file(mt_file)
+            )
 
         mqm_score = pd.read_csv(
-            f"{data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/human-scores/{src_lang}-"
+            f"{original_data_dir}/human-scores/{src_lang}-"
             f"{tgt_lang}.mqm.seg.score",
             names=["MT_system", "score"], header=None, delimiter="\t"
         ).groupby(
             by="MT_system"
-        )['score'].apply(list).to_dict()
+        )['score'].apply(list).apply(lambda x: filter_by_domain(data_domain, domain_list, x)).to_dict()
 
         # Remove the scoring on human translations
         ref_keys = [x for x in mqm_score.keys() if "ref" in x]
@@ -230,3 +239,9 @@ def ranking_scores_to_binary(scores):
         for j in range(i+1, len(scores)):
             binary_out.append(int(scores[i] > scores[j]))
     return np.array(binary_out)
+
+
+def filter_by_domain(data_domain, domain_list, sent_list):
+    if data_domain != 'all':
+        sent_list = [s for (s, d) in zip(sent_list, domain_list) if d == data_domain]
+    return sent_list

@@ -3,4 +3,4 @@
 analysis/*
 .ipynb_checkpoints/*
 __pycache__/*
-Analysis.ipynb
+*.ipynb
