@@ -14,11 +14,31 @@ export HF_HOME=/project/OML/tdinh/.cache/huggingface
 export CUDA_VISIBLE_DEVICES=4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-python score_knn_qe.py \
-  --dataset 'ted_tst14.en' \
-  --mt_model 'ted_new' \
-  --emb_layer 6 \
-  --datastore 'ted_new' \
-  --domain 'None' \
-  --data_root_path '/project/OML/tdinh/data' \
-  --knn_qe_root_path '/project/OML/tdinh/knn-qe'
+declare -a DATASETS=( 'ted_tst14.en' 'wmt22general.en'  )
+declare -a MT_MODELS=( 'ted_new' 'deltalm_base_ft_ted' )
+declare -a EMB_LAYERS=( 6 )
+declare -a DATASTORES=( 'ted_new' )
+
+for dataset in "${DATASETS[@]}"; do
+  for mt_model in "${MT_MODELS[@]}"; do
+    for emb_layer in "${EMB_LAYERS[@]}"; do
+      for datastore in "${DATASTORES[@]}"; do
+        if [[ ${dataset} == 'wmt22general.en' ]]; then
+          declare -a DOMAINS=( 'all' 'conversation' 'ecommerce' 'news' 'social' )
+        else
+          declare -a DOMAINS=( 'None' )
+        fi
+        for domain in "${DOMAINS[@]}"; do
+          python score_knn_qe.py \
+            --dataset ${dataset} \
+            --mt_model ${mt_model} \
+            --emb_layer ${emb_layer} \
+            --datastore ${datastore} \
+            --domain ${domain} \
+            --data_root_path '/project/OML/tdinh/data' \
+            --knn_qe_root_path '/project/OML/tdinh/knn-qe'
+        done
+      done
+    done
+  done
+done
