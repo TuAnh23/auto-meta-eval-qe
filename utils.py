@@ -242,6 +242,6 @@ def ranking_scores_to_binary(scores):
 
 
 def filter_by_domain(data_domain, domain_list, sent_list):
-    if data_domain != 'all':
+    if data_domain != 'None' and data_domain != 'all':
         sent_list = [s for (s, d) in zip(sent_list, domain_list) if d == data_domain]
     return sent_list

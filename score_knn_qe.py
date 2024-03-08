@@ -4,7 +4,7 @@ robust ref-based metric to score ref-free metric
 """
 
 import argparse
-from utils import load_text_file, filter_by_domain
+from utils import load_text_file, filter_by_domain, format_for_comet, load_comet_model
 from metricx23_predict import calculate_ref_based_score
 import numpy as np
 from glob import glob
@@ -40,6 +40,7 @@ def main():
     if args.dataset == 'ted_tst14.en':
         src = load_text_file(f'{args.data_root_path}/ted.en-de/tst.de-en.en')
         refs = [load_text_file(f'{args.data_root_path}/ted.en-de/tst.de-en.de')]
+        domain_list = None
     elif args.dataset == 'wmt22general.en':
         src = load_text_file(f"{args.data_root_path}/wmt22_general_MT/en-de/src.en")
         domain_list = load_text_file(f"{args.data_root_path}/wmt22_general_MT/en-de/domain.txt")
@@ -58,40 +59,46 @@ def main():
         scores = calculate_ref_based_score(mt, ref)
         # Invert so that the higher the score, the better the translation
         ref_based_scores.append(-np.array(scores))
+
     ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+    ref_based_score = filter_by_domain(
+        data_domain=args.domain, domain_list=domain_list, sent_list=ref_based_score
+    )
 
     eval_qe_dict = {}
     for qe_score_path in glob(f"{knn_qe_path}/qeScore_*.txt"):
         qe_method = qe_score_path.split('/')[-1].replace('qeScore_', '').replace('.txt', '')
         qe_scores = [float(x) for x in load_text_file(qe_score_path)]
+        meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, qe_method, qe_scores, ref_based_score)
 
-        if args.domain != 'None' and args.domain != 'all':
-            ref_based_score_filtered = filter_by_domain(
-                data_domain=args.domain, domain_list=domain_list, sent_list=ref_based_score
-            )
-            qe_scores_filtered = filter_by_domain(
-                data_domain=args.domain, domain_list=domain_list, sent_list=qe_scores
-            )
-        else:
-            ref_based_score_filtered = ref_based_score
-            qe_scores_filtered = qe_scores
+    # Also meta-eval COMET supervised QE to use as an upper baseline
+    qe_data = format_for_comet(src, mt)
+    qe_model = load_comet_model(None, 'wmt22-cogimetkiwi-da')
+    qe_scores = qe_model.predict(qe_data, batch_size=16, gpus=1).scores
+    meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, 'wmt22-cometkiwi-da', qe_scores, ref_based_score)
 
-        eval_qe = spearmanr(ref_based_score_filtered, qe_scores_filtered)
-        eval_qe_pearson = pearsonr(ref_based_score_filtered, qe_scores_filtered)
-        eval_qe_kendalltau = kendalltau(ref_based_score_filtered, qe_scores_filtered)
-
-        out_dict = {
-            'eval_qe': eval_qe,
-            'eval_qe_pearson': eval_qe_pearson,
-            'eval_qe_kendalltau': eval_qe_kendalltau
-        }
-
-        eval_qe_dict[qe_method] = out_dict
-
-        wandb.log({qe_method: eval_qe[0]})
+    # Also log MT-system-level score by the ref-based metric
+    mt_sys_score = np.mean(ref_based_score)
+    wandb.log({'mt_sys_score_ref_based': mt_sys_score})
 
     with open(f"{knn_qe_path}/eval_qe.json", 'w') as f:
         json.dump(eval_qe_dict, f)
+
+
+def meta_eval_qe_and_log(domain, domain_list, eval_qe_dict, qe_method, qe_scores, ref_based_score):
+    qe_scores = filter_by_domain(
+        data_domain=domain, domain_list=domain_list, sent_list=qe_scores
+    )
+    eval_qe = spearmanr(ref_based_score, qe_scores)
+    eval_qe_pearson = pearsonr(ref_based_score, qe_scores)
+    eval_qe_kendalltau = kendalltau(ref_based_score, qe_scores)
+    out_dict = {
+        'eval_qe': eval_qe,
+        'eval_qe_pearson': eval_qe_pearson,
+        'eval_qe_kendalltau': eval_qe_kendalltau
+    }
+    eval_qe_dict[qe_method] = out_dict
+    wandb.log({qe_method: eval_qe[0]})
 
 
 if __name__ == "__main__":
