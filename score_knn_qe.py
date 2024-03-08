@@ -73,7 +73,7 @@ def main():
 
     # Also meta-eval COMET supervised QE to use as an upper baseline
     qe_data = format_for_comet(src, mt)
-    qe_model = load_comet_model(None, 'wmt22-cogimetkiwi-da')
+    qe_model = load_comet_model(None, 'wmt22-cometkiwi-da')
     qe_scores = qe_model.predict(qe_data, batch_size=16, gpus=1).scores
     meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, 'wmt22-cometkiwi-da', qe_scores, ref_based_score)
 
