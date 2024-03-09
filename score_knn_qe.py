@@ -66,10 +66,18 @@ def main():
     )
 
     eval_qe_dict = {}
+    qe_scores_for_ensemble = []
+    qe_methods_for_ensemble = ['knn_distance_inv_k1', 'sent_similarity_k8']
     for qe_score_path in glob(f"{knn_qe_path}/qeScore_*.txt"):
         qe_method = qe_score_path.split('/')[-1].replace('qeScore_', '').replace('.txt', '')
         qe_scores = [float(x) for x in load_text_file(qe_score_path)]
         meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, qe_method, qe_scores, ref_based_score)
+        if qe_method in qe_methods_for_ensemble:
+            qe_scores_for_ensemble.append(qe_scores)
+
+    # Also eval ensembled qe score
+    qe_scores = np.mean(np.array(qe_scores_for_ensemble), axis=0)
+    meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, f'ensemble_{qe_methods_for_ensemble}', qe_scores, ref_based_score)
 
     # Also meta-eval COMET supervised QE to use as an upper baseline
     qe_data = format_for_comet(src, mt)
