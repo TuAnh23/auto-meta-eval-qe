@@ -4,7 +4,9 @@ robust ref-based metric to score ref-free metric
 """
 
 import argparse
-from utils import load_text_file, filter_by_domain, format_for_comet, load_comet_model
+import os.path
+
+from utils import load_text_file, filter_by_domain, format_for_comet, load_comet_model, write_text_file
 from metricx23_predict import calculate_ref_based_score
 import numpy as np
 from glob import glob
@@ -56,7 +58,14 @@ def main():
     print(f"Start evaluation using ref-based metric")
     ref_based_scores = []
     for ref in refs:
-        scores = calculate_ref_based_score(mt, ref)
+        metricx_score_path = f'{args.knn_qe_root_path}/{args.mt_model}/{args.dataset}/metricx23.score'
+        if os.path.isfile(metricx_score_path):
+            scores = load_text_file(metricx_score_path)
+            scores = [float(x) for x in scores]
+        else:
+            scores = calculate_ref_based_score(mt, ref)
+            write_text_file(scores, metricx_score_path)
+
         # Invert so that the higher the score, the better the translation
         ref_based_scores.append(-np.array(scores))
 
@@ -81,8 +90,14 @@ def main():
 
     # Also meta-eval COMET supervised QE to use as an upper baseline
     qe_data = format_for_comet(src, mt)
-    qe_model = load_comet_model(None, 'wmt22-cometkiwi-da')
-    qe_scores = qe_model.predict(qe_data, batch_size=16, gpus=1).scores
+    cometqe_score_path = f'{args.knn_qe_root_path}/{args.mt_model}/{args.dataset}/cometqe.score'
+    if os.path.isfile(cometqe_score_path):
+        qe_scores = load_text_file(cometqe_score_path)
+        qe_scores = [float(x) for x in qe_scores]
+    else:
+        qe_model = load_comet_model(None, 'wmt22-cometkiwi-da')
+        qe_scores = qe_model.predict(qe_data, batch_size=16, gpus=1).scores
+        write_text_file(qe_scores, cometqe_score_path)
     meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, 'wmt22-cometkiwi-da', qe_scores, ref_based_score)
 
     # Also log MT-system-level score by the ref-based metric
