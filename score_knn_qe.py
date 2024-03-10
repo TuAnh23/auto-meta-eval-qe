@@ -13,6 +13,7 @@ from glob import glob
 from scipy.stats import spearmanr, pearsonr, kendalltau
 import wandb
 import json
+os.environ["WANDB_SILENT"]="true"
 
 
 def main():
@@ -29,7 +30,9 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    wandb.init(project='knn-qe', entity='tuanh', name=f"{args.mt_model}/{args.dataset}/{args.datastore}_{args.emb_layer}")
+    wandb.init(project='knn-qe', entity='tuanh',
+               name=f"{args.mt_model}/{args.dataset}/{args.datastore}_{args.emb_layer}",
+               sync_tensorboard=False)
     args_dict = vars(args)
     for k, v in args_dict.items():
         if 'root_path' not in k:
@@ -75,18 +78,26 @@ def main():
     )
 
     eval_qe_dict = {}
-    qe_scores_for_ensemble = []
-    qe_methods_for_ensemble = ['knn_distance_inv_k1', 'sent_similarity_k8']
     for qe_score_path in glob(f"{knn_qe_path}/qeScore_*.txt"):
         qe_method = qe_score_path.split('/')[-1].replace('qeScore_', '').replace('.txt', '')
         qe_scores = [float(x) for x in load_text_file(qe_score_path)]
         meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, qe_method, qe_scores, ref_based_score)
-        if qe_method in qe_methods_for_ensemble:
-            qe_scores_for_ensemble.append(qe_scores)
 
     # Also eval ensembled qe score
-    qe_scores = np.mean(np.array(qe_scores_for_ensemble), axis=0)
-    meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, f'ensemble_{qe_methods_for_ensemble}', qe_scores, ref_based_score)
+    ensemble_combinations = [
+        ['knn_distance_inv_k1', 'sent_similarity_k1'],
+        ['knn_distance_inv_k1', 'sent_similarity_k1', 'nr_out_equal_knn_k10', 'nr_diff_knn_inv_k10'],
+        ['prob', 'knn_distance_inv_k1', 'sent_similarity_k1'],
+        ['prob', 'knn_distance_inv_k1', 'sent_similarity_k1', 'nr_out_equal_knn_k10', 'nr_diff_knn_inv_k10'],
+
+    ]
+    for combination in ensemble_combinations:
+        qe_scores = np.mean(
+            np.array([eval_qe_dict[qe_method]['qe_scores'] for qe_method in combination]),
+            axis=0
+        ).tolist()
+        meta_eval_qe_and_log(args.domain, domain_list, eval_qe_dict, f'ensemble_{combination}', qe_scores,
+                             ref_based_score)
 
     # Also meta-eval COMET supervised QE to use as an upper baseline
     qe_data = format_for_comet(src, mt)
@@ -109,16 +120,19 @@ def main():
 
 
 def meta_eval_qe_and_log(domain, domain_list, eval_qe_dict, qe_method, qe_scores, ref_based_score):
-    qe_scores = filter_by_domain(
-        data_domain=domain, domain_list=domain_list, sent_list=qe_scores
-    )
+    if len(qe_scores) != len(ref_based_score):
+        qe_scores = filter_by_domain(
+            data_domain=domain, domain_list=domain_list, sent_list=qe_scores
+        )
+
     eval_qe = spearmanr(ref_based_score, qe_scores)
     eval_qe_pearson = pearsonr(ref_based_score, qe_scores)
     eval_qe_kendalltau = kendalltau(ref_based_score, qe_scores)
     out_dict = {
         'eval_qe': eval_qe,
         'eval_qe_pearson': eval_qe_pearson,
-        'eval_qe_kendalltau': eval_qe_kendalltau
+        'eval_qe_kendalltau': eval_qe_kendalltau,
+        'qe_scores': qe_scores
     }
     eval_qe_dict[qe_method] = out_dict
     wandb.log({qe_method: eval_qe[0]})
