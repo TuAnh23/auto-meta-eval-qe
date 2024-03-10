@@ -55,7 +55,6 @@ def main():
 
     mt = load_text_file(f'{knn_qe_path}/mt.txt')
 
-    print(f"Start evaluation using ref-based metric")
     ref_based_scores = []
     for ref in refs:
         metricx_score_path = f'{args.knn_qe_root_path}/{args.mt_model}/{args.dataset}/metricx23.score'
@@ -63,6 +62,7 @@ def main():
             scores = load_text_file(metricx_score_path)
             scores = [float(x) for x in scores]
         else:
+            print(f"Start evaluation using ref-based metric")
             scores = calculate_ref_based_score(mt, ref)
             write_text_file(scores, metricx_score_path)
 
