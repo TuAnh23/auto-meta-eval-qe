@@ -21,7 +21,11 @@ def main():
     parser.add_argument('--dataset', type=str, choices=['wmt22general.en', 'ted_tst14.en'])
     parser.add_argument('--mt_model', type=str, choices=['deltalm_base_ft_ted', 'ted_new'])
     parser.add_argument('--emb_layer', type=int, choices=[0, 1, 2, 3, 4, 5, 6], default=6)
-    parser.add_argument('--datastore', type=str, choices=['ted_new'])
+    parser.add_argument(
+        '--datastore', type=str,
+        choices=['ted_new', 'europarlshort', 'reduced_ted_01', 'reduced_ted_02', 'reduced_ted_05', 'reduced_ted_10', 'reduced_ted_20',
+                 'reduced_ted_40', 'reduced_ted_60', 'reduced_ted_80']
+    )
     parser.add_argument('--domain', type=str, default='None',
                         choices=['None', 'all', 'conversation', 'ecommerce', 'news', 'social'])
     parser.add_argument('--data_root_path', type=str)
@@ -37,6 +41,8 @@ def main():
     for k, v in args_dict.items():
         if 'root_path' not in k:
             wandb.config[k] = v
+    if args.datastore.startswith('reduced_ted'):
+        wandb.config['ds_kept_portion'] = args.datastore.split('_')[-1]
 
     if args.domain != 'None' and 'wmt22' not in args.dataset:
         raise RuntimeError('Only wmt22 dataset is splitted into different domains.')
