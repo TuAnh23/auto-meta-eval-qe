@@ -7,8 +7,8 @@ conda activate fairseq
 which python
 
 # Where to store cache
-export TORCH_HOME=/project/OML/tdinh/.cache/torch
-export HF_HOME=/project/OML/tdinh/.cache/huggingface
+export TORCH_HOME=/project/t80p2/tdinh/.cache/torch
+export HF_HOME=/project/t80p2/tdinh/.cache/huggingface
 
 export CUDA_VISIBLE_DEVICES=$4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -37,8 +37,8 @@ OUTPUT_DIR="output/${EXP_NAME}"
 rm -rf ${OUTPUT_DIR}
 mkdir -p ${OUTPUT_DIR}
 
-DATA_ROOT_PATH="/project/OML/tdinh/data"
-MODEL_ROOT_PATH="/project/OML/tdinh/models"
+DATA_ROOT_PATH="/project/t80p2/tdinh/data"
+MODEL_ROOT_PATH="/project/t80p2/tdinh/models"
 
 WANDB_USERNAME="tuanh"  # Replace with your username if use wandb, otherwise "None"
 WANDB_PROJECT="auto-meta-eval-qe"

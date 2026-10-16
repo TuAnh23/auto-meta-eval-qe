@@ -8,10 +8,10 @@ conda activate fairseq
 which python
 
 # Where to store cache
-export TORCH_HOME=/project/OML/tdinh/.cache/torch
-export HF_HOME=/project/OML/tdinh/.cache/huggingface
+export TORCH_HOME=/project/t80p2/tdinh/.cache/torch
+export HF_HOME=/project/t80p2/tdinh/.cache/huggingface
 
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=${1:-1}  # GPU id: bash score_knn_qe.sh <gpu>
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 declare -a DATASETS=( 'ted_tst14.en' 'wmt22general.en' )
@@ -35,8 +35,8 @@ for dataset in "${DATASETS[@]}"; do
             --emb_layer ${emb_layer} \
             --datastore ${datastore} \
             --domain ${domain} \
-            --data_root_path '/project/OML/tdinh/data' \
-            --knn_qe_root_path '/project/OML/tdinh/knn-qe'
+            --data_root_path '/project/t80p2/tdinh/data' \
+            --knn_qe_root_path '/project/t80p2/tdinh/knn-qe'
         done
       done
     done

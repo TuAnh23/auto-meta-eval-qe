@@ -4,3 +4,7 @@ analysis/*
 .ipynb_checkpoints/*
 __pycache__/*
 *.ipynb
+output/*
+commit.txt
+diff.txt
+logs/*
