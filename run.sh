@@ -14,7 +14,7 @@ export CUDA_VISIBLE_DEVICES=$4
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 DATASET="wmt22-testmetrics"  # "wmt22-testmetrics" "wmt22-testqe-mqm"
-DATA_DOMAIN="news"  # 'all', 'conversation', 'ecommerce', 'news', 'social'
+DATA_DOMAIN=${5:-news}  # 'all', 'conversation', 'ecommerce', 'news', 'social'
 REF_BASED_SYS=$1  # 'XCOMET-XL' 'wmt22-comet-da' 'BLEU' 'CHRF' 'TER' 'bert-score' 'bleurt' 'unite-mup' 'metricx_xxl_MQM_2020' 'metricx_xl_MQM_2020' "metricx-23-xl-v2p0"
 NR_ORIGINAL_REFERENCE=$2  # "single", "mul"
 NR_PARAPHRASE_EACH_REF=$3
@@ -39,6 +39,7 @@ mkdir -p ${OUTPUT_DIR}
 
 DATA_ROOT_PATH="/project/t80p2/tdinh/data"
 MODEL_ROOT_PATH="/project/t80p2/tdinh/models"
+REF_BASED_CACHE_DIR="cache/ref_based_scores"  # COMET-style segment scores, shared across runs
 
 WANDB_USERNAME="tuanh"  # Replace with your username if use wandb, otherwise "None"
 WANDB_PROJECT="auto-meta-eval-qe"
@@ -116,6 +117,7 @@ if [[ ! -f ${OUTPUT_DIR}/ref_based_rank.txt ]]; then
     --nr-gpus 1 \
     --batch-size 8 \
     --ground-truth "ref_based_metrics" \
+    --ref-based-cache-dir ${REF_BASED_CACHE_DIR} \
     --ref-based-system ${REF_BASED_SYS} \
     --wandb-username ${WANDB_USERNAME} \
     --wandb-run-id ${WANDB_RUN_ID} \

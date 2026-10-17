@@ -5,6 +5,7 @@ analysis/*
 __pycache__/*
 *.ipynb
 output/*
+cache/*
 commit.txt
 diff.txt
 logs/*

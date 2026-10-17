@@ -12,7 +12,8 @@ case "${1:-}" in
   push)
     git rev-parse --short HEAD > commit.txt && git diff > diff.txt  # which version runs remotely
     rsync -ahr --stats ./ "$REMOTE:$REMOTE_DIR" --exclude='/.git' --exclude='/output' --exclude='/wandb' \
-        --exclude='/.venv' --exclude='/.metricx' --exclude='/logs' --filter=':- .gitignore' ;;
+        --exclude='/.venv' --exclude='/.metricx' --exclude='/logs' --exclude='/cache' \
+        --include='/commit.txt' --include='/diff.txt' --filter=':- .gitignore' ;;
   pull) rsync -ahr --stats "$REMOTE:$REMOTE_DIR/output/" ./output/ ;;
   *) echo "usage: $0 push|pull"; exit 1 ;;
 esac

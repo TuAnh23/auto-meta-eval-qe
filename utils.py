@@ -115,6 +115,48 @@ def format_for_comet(src, mt, ref=None):
         return [{'src': x, 'mt': y} for x, y in zip(src, mt)]
 
 
+class ScoreCache:
+    """
+    Segment-level score cache keyed by the (src, mt, ref) strings. Always memoizes in memory, so the same segment is
+    scored once per run. If `cache_dir` is given, all shards in it are loaded at start, and this run's new scores are
+    written to its own shard `{cache_dir}/{shard_name}.json` (one shard per run, so parallel runs never write the same
+    file).
+    """
+    def __init__(self, cache_dir=None, shard_name=None):
+        self.scores = {}
+        self.new_scores = {}
+        self.shard_path = None
+        if cache_dir is not None:
+            import os
+            os.makedirs(cache_dir, exist_ok=True)
+            for shard in glob(f"{cache_dir}/*.json"):
+                self.scores.update(load_json(shard))
+            self.shard_path = f"{cache_dir}/{shard_name}.json"
+            print(f"Loaded {len(self.scores)} cached scores from {cache_dir}")
+
+    @staticmethod
+    def key(sample):
+        import hashlib
+        return hashlib.sha1('\t'.join([sample['src'], sample['mt'], sample['ref']]).encode('utf-8')).hexdigest()
+
+    def __contains__(self, key):
+        return key in self.scores
+
+    def get(self, key):
+        return self.scores[key]
+
+    def put(self, key, score):
+        self.scores[key] = score
+        self.new_scores[key] = score
+
+    def save(self):
+        if self.shard_path is not None and len(self.new_scores) > 0:
+            import os
+            # Write then rename, so that parallel runs loading the shards never read a half-written file
+            dump_json(self.new_scores, f"{self.shard_path}.tmp")
+            os.replace(f"{self.shard_path}.tmp", self.shard_path)
+
+
 def format_for_sent_level_sacrebleu(src, mt, refs):
     """
     :param src: [src_sent1, src_sent2, ...]

@@ -16,7 +16,7 @@ import argparse
 from scipy.stats import spearmanr, pearsonr, kendalltau
 from utils import \
     load_data, format_for_comet, load_comet_model, WilliamsTest, write_text_file, \
-    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run, filter_by_domain
+    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run, filter_by_domain, ScoreCache
 import os
 import numpy as np
 import pandas as pd
@@ -66,6 +66,9 @@ def main():
     parser.add_argument('--output-dir', type=str,
                         help="Directory to save the file that stores the ranking of the given QE systems")
     parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_metrics"])
+    parser.add_argument('--ref-based-cache-dir', type=str, default=None,
+                        help="Directory to cache segment scores of COMET-style ref-based metrics (XCOMET, COMET, "
+                             "UniTE), shared across runs. Scores are memoized within a run either way.")
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
     parser.add_argument('--wandb-project', type=str, default="None")
@@ -78,6 +81,10 @@ def main():
         'qe_official_submissions', 'comet_qe_systems'
     ]
     init_wandb_run(args, log_keys)
+
+    ref_based_cache_dir = None if args.ref_based_cache_dir is None \
+        else f"{args.ref_based_cache_dir}/{args.ref_based_system}"
+    score_cache = ScoreCache(ref_based_cache_dir, shard_name=args.wandb_run_id)
 
     src, mt, refs, human_scores = load_data(
         args.data_root_path, args.dataset, args.src_lang, args.tgt_lang, args.data_domain
@@ -92,7 +99,9 @@ def main():
     human_scores_all = []
     qe_systems_outputs_all = []
     for mt_system in mt_systems_order:
-        qe_systems_outputs = do_rank_qes(args, human_scores[mt_system], mt[mt_system], refs, src, mt_system=mt_system)
+        qe_systems_outputs = do_rank_qes(
+            args, human_scores[mt_system], mt[mt_system], refs, src, score_cache, mt_system=mt_system
+        )
         qe_systems_outputs_all.append(qe_systems_outputs)
         src_all.extend(src)
         for k in refs.keys():
@@ -102,10 +111,13 @@ def main():
 
     human_scores_all = np.concatenate(human_scores_all)
 
-    do_rank_qes(args, human_scores_all, mt_all, refs_all, src_all, mt_system="all", mt_systems_order=mt_systems_order)
+    do_rank_qes(
+        args, human_scores_all, mt_all, refs_all, src_all, score_cache, mt_system="all",
+        mt_systems_order=mt_systems_order
+    )
 
 
-def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_order=None):
+def do_rank_qes(args, human_scores, mt, refs, src, score_cache, mt_system="all", mt_systems_order=None):
     if mt_system == "all":
         out_suffix = ""
     else:
@@ -117,12 +129,24 @@ def do_rank_qes(args, human_scores, mt, refs, src, mt_system="all", mt_systems_o
         wandb.log({'total_nr_refs': len(refs)})
     if args.ground_truth == 'ref_based_metrics':
         if 'comet' in args.ref_based_system.lower() or 'unite' in args.ref_based_system.lower():
-            ref_based_data_s = [format_for_comet(src, mt, ref) for ref in refs.values()]
-            ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
-            ref_based_scores = [
-                ref_based_model.predict(ref_based_data, batch_size=args.batch_size, gpus=args.nr_gpus).scores
-                for ref_based_data in ref_based_data_s
-            ]
+            ref_based_model = None
+            ref_based_scores = []
+            for ref in refs.values():
+                ref_based_data = format_for_comet(src, mt, ref)
+                keys = [score_cache.key(sample) for sample in ref_based_data]
+                # Only score segments not already scored in this run or in a cached previous run
+                todo = [i for i, key in enumerate(keys) if key not in score_cache]
+                print(f"{args.ref_based_system}: {len(keys) - len(todo)}/{len(keys)} segment scores cached")
+                if len(todo) > 0:
+                    if ref_based_model is None:
+                        ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
+                    new_scores = ref_based_model.predict(
+                        [ref_based_data[i] for i in todo], batch_size=args.batch_size, gpus=args.nr_gpus
+                    ).scores
+                    for i, score in zip(todo, new_scores):
+                        score_cache.put(keys[i], score)
+                    score_cache.save()
+                ref_based_scores.append([score_cache.get(key) for key in keys])
             ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
         elif args.ref_based_system in ['BLEU', 'CHRF', 'TER']:
             metrics_dict = {
