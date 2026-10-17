@@ -3,6 +3,7 @@ import numpy as np
 import random
 import scipy
 import json
+import functools
 from glob import glob
 
 
@@ -104,8 +105,54 @@ def load_data(data_root_path, dataset, src_lang, tgt_lang, data_domain):
 
         return src, mt, refs, mqm_score
 
+    elif dataset == "wmt24-testmetrics-esa":
+        # WMT24 General MT test set with ESA (0-100) segment scores and one reference (refA). Read directly from
+        # mt-metrics-eval (no process_data.py step), keeping only the segments of wmt24_segment_mask.
+        lp = f"{src_lang}-{tgt_lang}"
+        data_dir = f"{data_root_path}/{WMT24_DIR}"
+        mask = wmt24_segment_mask(data_root_path, lp, data_domain)
+
+        def keep(seq):
+            assert len(seq) == len(mask)
+            return [x for x, m in zip(seq, mask) if m]
+
+        src = keep(load_text_file(f"{data_dir}/sources/{lp}.txt"))
+        refs = {'ref:A': keep(load_text_file(f"{data_dir}/references/{lp}.refA.txt"))}
+        esa_score = {k: keep(v) for k, v in wmt24_esa_scores(data_root_path, lp).items()}
+        mt = {k: keep(load_text_file(f"{data_dir}/system-outputs/{lp}/{k}.txt")) for k in esa_score.keys()}
+        return src, mt, refs, esa_score
+
     else:
         raise RuntimeError(f"Dataset {dataset} unknown")
+
+
+WMT24_DIR = ".mt-metrics-eval/mt-metrics-eval-v2/wmt24"
+
+
+def load_seg_scores(path):
+    """mt-metrics-eval `*.seg.score` file -> {system: np.array of segment scores, NaN where None}, in file order"""
+    df = pd.read_csv(path, names=["system", "score"], header=None, delimiter="\t")
+    return {k: g['score'].to_numpy(dtype=float) for k, g in df.groupby('system', sort=False)}
+
+
+@functools.lru_cache()
+def wmt24_esa_scores(data_root_path, lp):
+    """ESA segment scores of the WMT24 MT systems, without the human reference (scored as a system) and without the
+    systems that have no ESA score at all"""
+    scores = load_seg_scores(f"{data_root_path}/{WMT24_DIR}/human-scores/{lp}.esa.seg.score")
+    return {k: v for k, v in scores.items() if "ref" not in k and not np.isnan(v).all()}
+
+
+@functools.lru_cache()
+def wmt24_segment_mask(data_root_path, lp, data_domain):
+    """
+    Segments used for WMT24: in `data_domain` (never the 'canary' test line), and with an ESA score for at least one MT
+    system. All correlations are computed over segments with a human score only, so dropping the others changes no
+    result and saves scoring them.
+    """
+    domains = [line.split('\t')[0] for line in load_text_file(f"{data_root_path}/{WMT24_DIR}/documents/{lp}.docs")]
+    annotated = np.any([~np.isnan(v) for v in wmt24_esa_scores(data_root_path, lp).values()], axis=0)
+    return tuple(bool(d != 'canary' and data_domain in ['all', d] and annotated[i]) for i, d in enumerate(domains))
 
 
 def format_for_comet(src, mt, ref=None):
@@ -156,6 +203,22 @@ class ScoreCache:
             dump_json(self.new_scores, f"{self.shard_path}.tmp")
             os.replace(f"{self.shard_path}.tmp", self.shard_path)
 
+    def score(self, samples, score_fn, name):
+        """
+        Scores of `samples` ([{'src', 'mt', 'ref'}]), calling `score_fn(uncached samples) -> scores` only for the
+        samples not cached yet
+        """
+        keys = [self.key(sample) for sample in samples]
+        todo = [i for i, key in enumerate(keys) if key not in self]
+        print(f"{name}: {len(keys) - len(todo)}/{len(keys)} segment scores cached")
+        if len(todo) > 0:
+            new_scores = score_fn([samples[i] for i in todo])
+            assert len(new_scores) == len(todo)
+            for i, score in zip(todo, new_scores):
+                self.put(keys[i], float(score))
+            self.save()
+        return [self.get(key) for key in keys]
+
 
 def format_for_sent_level_sacrebleu(src, mt, refs):
     """
@@ -200,7 +263,10 @@ def WilliamsTest(r12, r13, r23, n, one_sided=True):
     k = 1 - r12**2 - r13**2 - r23**2 + 2 * r12 * r23 * r13
 
     if k < 0:
-        raise RuntimeError("Value k should not be negative.")
+        # Happens for near-identical QE systems (r23 ~ 1 but r12 != r13), e.g. two variants of one WMT24 submission.
+        # Only used for the `significantly_worse` lists, not for any correlation: report as not significant.
+        print(f"WARNING: Williams test undefined (k = {k} < 0), p-value set to NaN")
+        return np.nan
 
     rbar = ((r12 + r13) / 2)
     tnum = (r12 - r13) * np.sqrt((n - 1) * (1 + r23))

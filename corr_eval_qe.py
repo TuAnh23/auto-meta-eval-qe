@@ -16,13 +16,12 @@ import argparse
 from scipy.stats import spearmanr, pearsonr, kendalltau
 from utils import \
     load_data, format_for_comet, load_comet_model, WilliamsTest, write_text_file, \
-    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run, filter_by_domain, ScoreCache
+    dump_json, add_noise, load_text_file, format_for_sent_level_sacrebleu, init_wandb_run, filter_by_domain, ScoreCache, \
+    WMT24_DIR, load_seg_scores, wmt24_segment_mask
 import os
 import numpy as np
 import pandas as pd
-from sacrebleu.metrics import BLEU, CHRF, TER
 import wandb
-import bert_score
 from glob import glob
 
 
@@ -36,19 +35,22 @@ def main():
             "wmt22-testqe-mqm",  # Based on Newstest2022, single MT output, the only part that XCOMET is not trained on. Official test set for WMT22 QE
             "wmt22-testmetrics",  # Based on General test 2022, multiple MT outputs, should not use XCOMET because of data leakage. Official test set for WMT22 Metrics
             # wmt23 en-de is on paragraph level.
+            "wmt24-testmetrics-esa",  # General test 2024, ESA scores, 1 ref; XCOMET and MetricX-23 are not trained on it
         ],
         default="wmt22-testqe-mqm"
     )
     parser.add_argument('--data-root-path', type=str)
     parser.add_argument('--data-domain',
                         type=str, default='all',
-                        choices=['all', 'conversation', 'social', 'news', 'ecommerce'])
+                        choices=['all', 'conversation', 'social', 'news', 'ecommerce',  # WMT22
+                                 'literary', 'speech',  # + news, social: WMT24 en-*
+                                 'education', 'official', 'personal', 'voice'])  # + news: WMT24 cs-uk
     parser.add_argument('--comet-model-root-path', type=str)
     parser.add_argument('--src-lang', type=str)
     parser.add_argument('--tgt-lang', type=str)
     parser.add_argument('--comet-qe-systems', type=str, nargs='*', default=[])
     parser.add_argument('--synthetic-qe-systems', type=str, default='None', choices=['None', '20-human-with-noise'])
-    parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22', 'wmt22-qe-metrics'])
+    parser.add_argument('--qe-official-submissions', type=str, default='None', choices=['None', 'wmt22', 'wmt22-qe-metrics', 'wmt24-qe-metrics'])
     parser.add_argument(
         '--ref-based-system',
         type=str,
@@ -67,8 +69,8 @@ def main():
                         help="Directory to save the file that stores the ranking of the given QE systems")
     parser.add_argument('--ground-truth', type=str, choices=["human", "ref_based_metrics"])
     parser.add_argument('--ref-based-cache-dir', type=str, default=None,
-                        help="Directory to cache segment scores of COMET-style ref-based metrics (XCOMET, COMET, "
-                             "UniTE), shared across runs. Scores are memoized within a run either way.")
+                        help="Directory to cache segment scores of model-based ref-based metrics (COMET-style, BERTScore, "
+                             "BLEURT, MetricX-23), shared across runs. Scores are memoized within a run either way.")
     parser.add_argument('--wandb-username', type=str, default="None")
     parser.add_argument('--wandb-run-id', type=str, default="None")
     parser.add_argument('--wandb-project', type=str, default="None")
@@ -97,19 +99,27 @@ def main():
     refs_all = {k: [] for k in refs.keys()}
     mt_all = []
     human_scores_all = []
-    qe_systems_outputs_all = []
     for mt_system in mt_systems_order:
-        qe_systems_outputs = do_rank_qes(
-            args, human_scores[mt_system], mt[mt_system], refs, src, score_cache, mt_system=mt_system
-        )
-        qe_systems_outputs_all.append(qe_systems_outputs)
         src_all.extend(src)
         for k in refs.keys():
             refs_all[k].extend(refs[k])
         mt_all.extend(mt[mt_system])
         human_scores_all.append(human_scores[mt_system])
-
     human_scores_all = np.concatenate(human_scores_all)
+
+    if args.ground_truth == 'ref_based_metrics' and args.ref_based_system in MODEL_BASED_METRICS:
+        # Score all segments in one go (one model load); the per-MT-system passes below then read the cache
+        for ref in refs_all.values():
+            score_cache.score(format_for_comet(src_all, mt_all, ref), lambda samples: score_model_based(args, samples),
+                              args.ref_based_system)
+    elif args.ground_truth == 'ref_based_metrics' and args.ref_based_system in ['BLEU', 'CHRF', 'TER'] \
+            and len(refs_all) == 1:
+        metric = sacrebleu_metric(args)
+        score_cache.score(format_for_comet(src_all, mt_all, list(refs_all.values())[0]),
+                          lambda samples: score_sacrebleu(metric, samples), args.ref_based_system)
+
+    for mt_system in mt_systems_order:
+        do_rank_qes(args, human_scores[mt_system], mt[mt_system], refs, src, score_cache, mt_system=mt_system)
 
     do_rank_qes(
         args, human_scores_all, mt_all, refs_all, src_all, score_cache, mt_system="all",
@@ -128,59 +138,35 @@ def do_rank_qes(args, human_scores, mt, refs, src, score_cache, mt_system="all",
     if mt_system == "all":
         wandb.log({'total_nr_refs': len(refs)})
     if args.ground_truth == 'ref_based_metrics':
-        if 'comet' in args.ref_based_system.lower() or 'unite' in args.ref_based_system.lower():
-            ref_based_model = None
-            ref_based_scores = []
-            for ref in refs.values():
-                ref_based_data = format_for_comet(src, mt, ref)
-                keys = [score_cache.key(sample) for sample in ref_based_data]
-                # Only score segments not already scored in this run or in a cached previous run
-                todo = [i for i, key in enumerate(keys) if key not in score_cache]
-                print(f"{args.ref_based_system}: {len(keys) - len(todo)}/{len(keys)} segment scores cached")
-                if len(todo) > 0:
-                    if ref_based_model is None:
-                        ref_based_model = load_comet_model(args.comet_model_root_path, args.ref_based_system)
-                    new_scores = ref_based_model.predict(
-                        [ref_based_data[i] for i in todo], batch_size=args.batch_size, gpus=args.nr_gpus
-                    ).scores
-                    for i, score in zip(todo, new_scores):
-                        score_cache.put(keys[i], score)
-                    score_cache.save()
-                ref_based_scores.append([score_cache.get(key) for key in keys])
-            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
-        elif args.ref_based_system in ['BLEU', 'CHRF', 'TER']:
-            metrics_dict = {
-                'BLEU': BLEU(effective_order=True),
-                'CHRF': CHRF(),
-                'TER': TER()
-            }
-            src, mt, formatted_refs = format_for_sent_level_sacrebleu(src, mt, list(refs.values()))
-            ref_based_score = np.array(
-                [
-                    metrics_dict[args.ref_based_system].sentence_score(mt[i], formatted_refs[i]).score
-                    for i in range(len(mt))
-                ]
-            )
+        if args.ref_based_system in ['BLEU', 'CHRF', 'TER']:
+            metric = sacrebleu_metric(args)
+            if len(refs) == 1:
+                # Cached: TER with character-level tokenization (zh, ja) is slow on long segments
+                ref_based_score = np.array(score_cache.score(
+                    format_for_comet(src, mt, list(refs.values())[0]),
+                    lambda samples: score_sacrebleu(metric, samples), args.ref_based_system
+                ))
+            else:
+                # Multiple references are scored jointly, not averaged per reference: not cached
+                src, mt, formatted_refs = format_for_sent_level_sacrebleu(src, mt, list(refs.values()))
+                ref_based_score = np.array(
+                    [metric.sentence_score(mt[i], formatted_refs[i]).score for i in range(len(mt))]
+                )
             if args.ref_based_system == 'TER':
                 # Invert so that the higher the score, the beter the translation
                 ref_based_score = - ref_based_score
-        elif args.ref_based_system == 'bert-score':
+        elif args.ref_based_system in MODEL_BASED_METRICS:
             ref_based_scores = []
             for ref in refs.values():
-                _, _, scores = bert_score.score(mt, ref, lang=args.tgt_lang)
-                ref_based_scores.append(scores.numpy())
+                # Only score segments not already scored in this run or in a cached previous run
+                ref_based_scores.append(score_cache.score(
+                    format_for_comet(src, mt, ref), lambda samples: score_model_based(args, samples),
+                    args.ref_based_system
+                ))
             ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
-        elif args.ref_based_system == 'bleurt':
-            import sentencepiece as spm
-            from bleurt import score
-
-            checkpoint = "../models/BLEURT-20"
-            scorer = score.BleurtScorer(checkpoint)
-            ref_based_scores = []
-            for ref in refs.values():
-                scores = scorer.score(references=ref, candidates=mt)
-                ref_based_scores.append(scores)
-            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
+            if args.ref_based_system == 'metricx-23-xl-v2p0':
+                # Invert so that the higher the score, the beter the translation
+                ref_based_score = - ref_based_score
         elif args.ref_based_system in ['metricx_xxl_MQM_2020', 'metricx_xl_MQM_2020']:
             assert args.dataset == "wmt22-testmetrics"
             submissions_root_path = f"{args.data_root_path}/.mt-metrics-eval/mt-metrics-eval-v2/wmt22/metric-scores/" \
@@ -207,14 +193,6 @@ def do_rank_qes(args, human_scores, mt, refs, src, score_cache, mt_system="all",
                 else:
                     scores = scores[mt_system]
                 ref_based_scores.append(scores)
-            ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
-        elif args.ref_based_system in ["metricx-23-xl-v2p0"]:
-            from metricx23_predict import calculate_ref_based_score
-            ref_based_scores = []
-            for ref in refs.values():
-                scores = calculate_ref_based_score(mt, ref)
-                # Invert so that the higher the score, the beter the translation
-                ref_based_scores.append(-np.array(scores))
             ref_based_score = np.mean(np.array(ref_based_scores), axis=0)
         else:
             raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
@@ -290,6 +268,24 @@ def do_rank_qes(args, human_scores, mt, refs, src, score_cache, mt_system="all",
                                   qe_systems_outputs=qe_systems_outputs,
                                   ref_based_score=ref_based_score,
                                   ground_truth=args.ground_truth)
+    elif args.qe_official_submissions == 'wmt24-qe-metrics':
+        # Reference-free (`*-src`) submissions to the WMT24 metrics shared task
+        assert args.dataset == "wmt24-testmetrics-esa"
+        lp = f"{args.src_lang}-{args.tgt_lang}"
+        mask = wmt24_segment_mask(args.data_root_path, lp, args.data_domain)
+        for qe_file in sorted(glob(f"{args.data_root_path}/{WMT24_DIR}/metric-scores/{lp}/*-src.seg.score")):
+            participant = qe_file.split('/')[-1].replace("-src.seg.score", "")
+            scores = {k: v[np.array(mask)] for k, v in load_seg_scores(qe_file).items()}
+            if mt_system == "all":
+                scores = np.concatenate([scores[x] for x in mt_systems_order])
+            else:
+                scores = scores[mt_system]
+            success = gather_corr(human_scores=human_scores,
+                                  qe_score=scores,
+                                  qe_system=participant,
+                                  qe_systems_outputs=qe_systems_outputs,
+                                  ref_based_score=ref_based_score,
+                                  ground_truth=args.ground_truth)
 
     ranked_qes = sort_qe_systems(qe_systems_outputs)
     # Remove the sentence-level scores from the output for readability
@@ -310,6 +306,53 @@ def do_rank_qes(args, human_scores, mt, refs, src, score_cache, mt_system="all",
             }
         )
     return qe_systems_outputs
+
+
+def sacrebleu_metric(args):
+    # Imported here: the BLEURT venv has an old single-module sacrebleu (1.4.4) that shadows this one
+    from sacrebleu.metrics import BLEU, CHRF, TER
+    # Tokenization as sacrebleu's defaults for these target languages (13a would not split zh/ja into words)
+    tokenize = {'zh': 'zh', 'ja': 'ja-mecab'}.get(args.tgt_lang)
+    asian = args.tgt_lang in ['zh', 'ja']
+    return {
+        'BLEU': lambda: BLEU(effective_order=True, tokenize=tokenize),
+        'CHRF': lambda: CHRF(),
+        'TER': lambda: TER(normalized=asian, asian_support=asian),
+    }[args.ref_based_system]()
+
+
+def score_sacrebleu(metric, samples):
+    """Sentence-level scores of a sacrebleu metric, one reference per sample (TER: lower = better)"""
+    return [metric.sentence_score(x['mt'], [x['ref']]).score for x in samples]
+
+
+MODEL_BASED_METRICS = ['XCOMET-XL', 'wmt22-comet-da', 'unite-mup', 'bert-score', 'bleurt', 'metricx-23-xl-v2p0']
+_loaded_models = {}  # loaded once per process, and only if some segment is not cached
+
+
+def score_model_based(args, samples):
+    """Segment scores of a model-based ref-based metric for [{'src', 'mt', 'ref'}] (MetricX: lower = better)"""
+    mt, ref = [x['mt'] for x in samples], [x['ref'] for x in samples]
+    if 'comet' in args.ref_based_system.lower() or 'unite' in args.ref_based_system.lower():
+        if args.ref_based_system not in _loaded_models:
+            _loaded_models[args.ref_based_system] = load_comet_model(args.comet_model_root_path, args.ref_based_system)
+        return _loaded_models[args.ref_based_system].predict(
+            samples, batch_size=args.batch_size, gpus=args.nr_gpus
+        ).scores
+    elif args.ref_based_system == 'bert-score':
+        import bert_score
+        _, _, scores = bert_score.score(mt, ref, lang=args.tgt_lang)
+        return scores.numpy()
+    elif args.ref_based_system == 'bleurt':
+        if 'bleurt' not in _loaded_models:
+            import sentencepiece as spm
+            from bleurt import score
+            _loaded_models['bleurt'] = score.BleurtScorer("../models/BLEURT-20")
+        return _loaded_models['bleurt'].score(references=ref, candidates=mt)
+    elif args.ref_based_system == 'metricx-23-xl-v2p0':
+        from metricx23_predict import calculate_ref_based_score
+        return calculate_ref_based_score(mt, ref)
+    raise RuntimeError(f"Unknown ref_based_system {args.ref_based_system}.")
 
 
 def gather_corr(human_scores, qe_score, qe_system, qe_systems_outputs, ref_based_score, ground_truth):
